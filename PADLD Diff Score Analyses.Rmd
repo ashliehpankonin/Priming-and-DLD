@@ -1,0 +1,302 @@
+---
+title: "PADLD Diff Score Analyses"
+author: "Ashlie"
+date: "2024-08-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+# Libraries
+pacman::p_load(knitr, # rendering of .Rmd file
+               lme4, # model specification/estimation
+               afex, # anova and deriving p-values via LRTs from lmer
+               broom.mixed, # extracting data from model fits
+               faux, # generate correlated values
+               tidyverse, # data wrangling and visualization 
+               ggridges, # visualization
+               viridis, # color schemes for visualization
+               kableExtra, # helps with knitting the .Rmd file
+               cowplot, # visualization tool to include multiple plots
+               ggrain, # visualization tool for raincloud plots
+               dplyr, # data manipulation tools
+               here, # controlling directories/reproducibility
+               tidyr, # formatting package
+               readr, # data importation
+               Hmisc, # visualization
+               emmeans, # estimation of marginal means and contrasts
+               sjstats, # estimation of marginal means and contrasts
+               lmerTest, # deriving p-values from lmer
+               MuMIn, # ?
+               sjPlot, # APA formatting of numerical output
+               car, # data wrangling and visualization,
+               magrittr, # to use %>%
+               ggpubr, # ? (Rose had it in her script)
+               broom, # ? (Rose had it in her script)
+               Matrix, # model specification/estimation,
+               multcomp, # multiple comparison adjustments
+               forcats, # organizing visualizations
+               gtools, # data manipulation/wrangling
+               fuzzySim, # FDR correction,
+               ez, # anova
+               apaTables, # visualization of anova output
+               #renv # package versioning/reproducibility
+               )
+
+# Global theme set
+set.seed(1234) # set random seed for reproducibility
+
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE)
+
+#theme_set(theme_bw(base_size = 13) + theme(text = element_text(size=13), 
+                             #axis.title=element_text(size=12),
+                             #strip.text = element_text(margin=margin(2,0,2,0)), 
+                             #panel.grid = element_blank()))
+
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE, fig.width=10, fig.height=8, fig.fullwidth=TRUE)
+
+plot_theme <- 
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 18), 
+        axis.text.x = element_text(size = 13), 
+        axis.title.x = element_text(size = 13), 
+        axis.text.y = element_text(size = 12), 
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", linewidth = 1.5, linetype="solid"))
+
+options(scipen=0)
+```
+
+# All Diff Score Data
+
+## Data Manipulation
+```{r}
+# Load data (1 data frame)
+diffscore_data <- read.csv(here("PADLD Data", "PADLD Diff Scores Data.csv"),stringsAsFactors=TRUE) # N400 priming effect difference scores
+
+diffscore_data %<>%
+  mutate(Priming.Diff.Score = as.numeric(Priming.Diff.Score),
+         Channel = factor(Channel),
+         Region = factor(Region, levels=c("frontal","central","parietal","occipital")),
+         Hemisphere = factor(Hemisphere, levels=c("left","midline","right")),
+         Experimental.Condition = factor(Experimental.Condition),
+         Prime.Visibility = factor (Prime.Visibility),
+         Group = factor(Group), 
+         gender.c = as.numeric(Gender) - 1.5,
+         Detailed.Language.Status = factor(Detailed.Language.Status),
+         Language.Status = factor(Language.Status,levels=c("English monolingual","English primary")),
+         lang.stat.c = as.numeric(Language.Status) - 1.5,
+         Bilingual.Type = factor(Bilingual.Type),
+         celf5 = as.numeric(CELF5.CLS),
+         celf5.c = as.numeric(scale(CELF5.CLS, center = TRUE, scale = FALSE)),
+         age.c = as.numeric(scale(Average.Age, center = TRUE, scale = FALSE)),
+         nwr.ppc.arc = asin(sqrt(as.numeric(NWR.PPC)/100)),
+         nwr.ppc.arc.c = as.numeric(scale(nwr.ppc.arc, center = TRUE, scale = FALSE)),
+         nwr.pcc.arc = asin(sqrt(as.numeric(NWR.PCC)/100)),
+         nwr.pcc.arc.c = as.numeric(scale(nwr.pcc.arc, center = TRUE, scale = FALSE)),
+         tills= as.numeric(TILLS.VA.Standard.Score),
+         tills.c = as.numeric(scale(TILLS.VA.Standard.Score, center = TRUE, scale = FALSE)),
+         toni= as.numeric(TONI.Deviation.Quotient),
+         toni.c = as.numeric(scale(TONI.Deviation.Quotient, center = TRUE, scale = FALSE)),
+         wrmt = as.numeric(WRMT.LWI.Standard.Score),
+         wrmt.c = as.numeric(scale(WRMT.LWI.Standard.Score, center = TRUE, scale = FALSE)),
+         flanker = as.numeric(Flanker.Standard.Score),
+         flanker.c = as.numeric(scale(Flanker.Standard.Score, center = TRUE, scale = FALSE)),
+         handedness = factor(Handedness),
+         hand.c = as.numeric(handedness) - 1.5,
+         pvt = factor(PVT,levels=c("50","67","83","100","> 117")))
+str(diffscore_data)
+
+# Create some data subsets
+masked_diffscore_data <- subset(diffscore_data, Prime.Visibility == "masked")
+vis_diffscore_data <- subset(diffscore_data, Prime.Visibility == "visible")
+
+# Notes:
+# Region = anteriority/posteriority; default reference level (set above) = frontal
+# Hemisphere = laterality; default reference level (set above) = left
+# Experimental Condition = picture vs. word; default reference level = picture
+# Prime Visibility = masked vs. visible; default reference level = masked
+# Group = DLD vs. TL; default reference level = DLD
+# For gender, female = -0.5 (after centering), male = 0.5 (after centering)
+# Detailed Language Status = language status + bilingual type (see below); default reference level= English monolingual
+# Language Status = English monolingual vs. English primary; default reference level (set above) \ = English monolingual
+# For language status, English monolingual = -0.5 (after centering), English primary/bilingual = 0.5 (after centering)
+# Bilingual Type = sequential vs. simultaneous and the languages spoken; default reference level = NA? sequential bilingual (English-French)?
+# For handedness, L = -0.5 (after centering), R = 0.5 (after centering)
+# PVT = prime visibility threshold (shortest prime duration at which participant identified > 50% of animal primes presented at that duration); 50 vs. 67 vs. 83 vs. 100 vs. > 117; default reference level (set above) = 50
+```
+
+## Analyses
+### Finding the maximal convergent model
+#### Masked Data
+FINAL BASE MODELS: 
+diffscoresmaskedm3 <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere, data=masked_diffscore_data)
+diffscoresmaskedm6 <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + (1+Experimental.Condition|Participant.ID) , data=masked_diffscore_data
+```{r}
+diffscoresmaskedm1 <- lmer(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(diffscoresmaskedm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+diffscoresmaskedm2 <- lmer(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere + (1|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # model failed to converge, so checking random effects' variances
+summary(rePCA(diffscoresmaskedm2)) # PCA results an extremely large SD for the random intercept of Participant ID, so trying removing random effects altogether
+
+diffscoresmaskedm3 <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere, data=masked_diffscore_data) # converges! now to test covariates
+
+diffscoresmaskedm4 <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + (1|Participant.ID) + (1|Channel) , data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning and failed to converge, so checking random effects' variances
+summary(rePCA(diffscoresmaskedwordm4)) # PCA results indicate close to no variability in the random effects for Channel, so trying a model with that random effect removed
+
+diffscoresmaskedm5 <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + (1|Participant.ID) , data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now to build random effects
+
+diffscoresmaskedm6 <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + (1+tills.c|Participant.ID) , data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning; continuing to build random effects structure
+
+diffscoresmaskedm6 <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + (1+Experimental.Condition|Participant.ID) , data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now to test covariates
+
+```
+
+### Testing impact of covariates
+#### Masked Data
+##### TILLS as DV
+FINAL MODEL:diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c + nwr.ppc.arc.c + toni.c + wrmt.c +  hand.c  +  pvt , data=masked_diffscore_data)
+```{r}
+diffscoresmaskedm3.gender <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere + gender.c , data=masked_diffscore_data) # to determine whether gender significantly improves model fit
+anova(diffscoresmaskedm3,diffscoresmaskedm3.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender over diffscoresmaskedm3
+
+diffscoresmaskedm3.gender.age <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere + gender.c  +age.c , data=masked_diffscore_data) # to determine whether age significantly improves model fit
+anova(diffscoresmaskedm3.gender,diffscoresmaskedm3.gender.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model -->significant: prefer diffscoresmaskedm3.gender.age over diffscoresmaskedm3.gender
+
+diffscoresmaskedm3.gender.age.langstat <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere  + gender.c + age.c  + lang.stat.c , data=masked_diffscore_data) # to determine whether language status significantly improves model fit
+anova(diffscoresmaskedm3.gender.age, diffscoresmaskedm3.gender.age.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender.age.langstat over diffscoresmaskedm3.gender.age
+
+diffscoresmaskedm3.gender.age.langstat.celf <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere  + gender.c + age.c + lang.stat.c  + celf5.c , data=masked_diffscore_data) # to determine whether CELF-5 CLS significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat,diffscoresmaskedm3.gender.age.langstat.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender.age.langstat.celf over diffscoresmaskedm3.gender.age.langstat
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrppc <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere + gender.c + age.c + lang.stat.c + celf5.c  + nwr.ppc.arc.c , data=masked_diffscore_data) # to determine whether NWR PPC significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat.celf,diffscoresmaskedm3.gender.age.langstat.celf.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrppc over diffscoresmaskedm3.gender.age.langstat.celf
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrpcc <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c  +  nwr.pcc.arc.c , data=masked_diffscore_data) # to determine whether NWR PCC significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat.celf,diffscoresmaskedm3.gender.age.langstat.celf.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrpcc over diffscoresmaskedm3.gender.age.langstat.celf; comparing models to see whether including nwrppc or nwrpcc leads to a better fitting model
+
+anova(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc,diffscoresmaskedm3.gender.age.langstat.celf.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrppc over diffscoresmaskedm3.gender.age.langstat.celf.nwrppc
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c + nwr.ppc.arc.c  +  toni.c , data=masked_diffscore_data) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc,diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni over diffscoresmaskedm3.gender.age.langstat.celf.nwrppc
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c + nwr.ppc.arc.c + toni.c  +  wrmt.c , data=masked_diffscore_data) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni,diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt over diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.flanker <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c + nwr.ppc.arc.c + toni.c + wrmt.c  +  flanker.c , data=masked_diffscore_data) # to determine whether Flanker Standard Score significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt, diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt over diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.flanker
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c + nwr.ppc.arc.c + toni.c + wrmt.c  +  hand.c , data=masked_diffscore_data) # to determine whether handedness significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt,diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness over diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c + nwr.ppc.arc.c + toni.c + wrmt.c +  hand.c  +  pvt , data=masked_diffscore_data) # to determine whether prime visibility threshold significantly improves model fit
+anova(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness,diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt)  # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt over diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness
+```
+
+##### Diff Score as DV
+FINAL MODEL:
+diffscoresmaskedm6 <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + (1+Experimental.Condition|Participant.ID) , data=masked_diffscore_data
+```{r}
+diffscoresmaskedm6.gender <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + gender.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.gender
+
+diffscoresmaskedm6.age <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + age.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.age
+
+diffscoresmaskedm6.langstat <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere  + lang.stat.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model--> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.langstat
+
+diffscoresmaskedm6.celf <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere  + celf5.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.celf
+
+diffscoresmaskedm6.nwrppc <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + nwr.ppc.arc.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.nwrppc
+
+diffscoresmaskedm6.nwrpcc <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere+  nwr.pcc.arc.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.nwrpcc
+
+diffscoresmaskedm6.toni <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere+  toni.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.toni
+
+diffscoresmaskedm6.wrmt <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere+  wrmt.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.wrmt
+
+diffscoresmaskedm6.flanker <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere+  flanker.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.flanker
+
+diffscoresmaskedm6.handedness <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere+  hand.c + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.handedness)  # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.handedness
+
+diffscoresmaskedm6.pvt <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere+  pvt + (1+Experimental.Condition|Participant.ID), data=masked_diffscore_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+anova(diffscoresmaskedm6,diffscoresmaskedm6.pvt)  # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer diffscoresmaskedm6 over diffscoresmaskedm6.pvt
+```
+
+### Interpreting lmers' output
+#### Masked Data
+##### TILLS as DV
+Results:
+- no sig main effects or interactions re: diff score
+- N400 priming effect difference scores significantly predict TILLS Vocabulary Awareness standard scores at the level of each experimental condition, hemisphere, and region (v sus...especially since priming effect difference scores are not significant in the omnibus test...)
+```{r}
+masked_diffscore_data$Experimental.Condition <- contr_code_anova(masked_diffscore_data$Experimental.Condition)
+masked_diffscore_data$Region <- contr_code_anova(masked_diffscore_data$Region)
+masked_diffscore_data$Hemisphere <- contr_code_anova(masked_diffscore_data$Hemisphere)
+
+diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt <- lm(tills ~ Priming.Diff.Score*Experimental.Condition*Region*Hemisphere+ gender.c + age.c + lang.stat.c + celf5.c + nwr.ppc.arc.c + toni.c + wrmt.c +  hand.c  +  pvt , data=masked_diffscore_data)
+tidy(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt)
+
+diffscoremaskedemm1 <- emmeans(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt, ~ Priming.Diff.Score | Experimental.Condition, adjust = "none")
+tidy(diffscoremaskedemm1)%>%
+   mutate(signif = stars.pval(p.value))
+
+diffscoremaskedemm2 <- emmeans(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt, ~ Priming.Diff.Score | Experimental.Condition*Hemisphere, adjust = "none")
+tidy(diffscoremaskedemm2)%>%
+   mutate(signif = stars.pval(p.value))
+
+diffscoremaskedemm3 <- emmeans(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt, ~ Priming.Diff.Score | Experimental.Condition*Region, adjust = "none")
+tidy(diffscoremaskedemm3)%>%
+   mutate(signif = stars.pval(p.value))
+
+diffscoremaskedemm4 <- emmeans(diffscoresmaskedm3.gender.age.langstat.celf.nwrppc.toni.wrmt.handedness.pvt, ~ Priming.Diff.Score | Experimental.Condition*Hemisphere*Region, adjust = "none")
+tidy(diffscoremaskedemm4)%>%
+   mutate(signif = stars.pval(p.value))
+
+
+```
+
+##### Diff Score as DV
+Results:
+- no sig main effects or interactions re: diff score
+- TILLS Vocabulary Awareness standard scores do not significantly predict any N400 priming effect difference scores (overall, for masked word data, or for masked picture data)
+```{r}
+masked_diffscore_data$Experimental.Condition <- contr_code_anova(masked_diffscore_data$Experimental.Condition)
+masked_diffscore_data$Region <- contr_code_anova(masked_diffscore_data$Region)
+masked_diffscore_data$Hemisphere <- contr_code_anova(masked_diffscore_data$Hemisphere)
+
+diffscoresmaskedm6 <- lmer(Priming.Diff.Score ~ tills.c*Experimental.Condition*Region*Hemisphere + (1+Experimental.Condition|Participant.ID) , data=masked_diffscore_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(diffscoresmaskedm6)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(diffscoresmaskedm6)
+
+diffscoremaskedemm5 <- emmeans(diffscoresmaskedm6, ~ tills.c | Experimental.Condition, adjust = "none")
+tidy(diffscoremaskedemm5)%>%
+   mutate(signif = stars.pval(p.value))
+
+diffscoremaskedemm6 <- emmeans(diffscoresmaskedm6, ~ tills.c | Experimental.Condition*Hemisphere, adjust = "none")
+tidy(diffscoremaskedemm6)%>%
+   mutate(signif = stars.pval(p.value))
+
+diffscoremaskedemm7 <- emmeans(diffscoresmaskedm6, ~ tills.c | Experimental.Condition*Region, adjust = "none")
+tidy(diffscoremaskedemm7)%>%
+   mutate(signif = stars.pval(p.value))
+
+diffscoremaskedemm8 <- emmeans(diffscoresmaskedm6, ~ tills.c | Experimental.Condition*Hemisphere*Region, adjust = "none")
+tidy(diffscoremaskedemm8)%>%
+   mutate(signif = stars.pval(p.value))
+```
+
+

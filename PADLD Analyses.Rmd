@@ -1,0 +1,1837 @@
+---
+title: "PADLD Analyses"
+author: "Ashlie"
+date: "2024-07-17"
+output: html_document
+---
+
+```{r setup}
+
+# Libraries
+pacman::p_load(knitr, # rendering of .Rmd file
+               lme4, # model specification/estimation
+               afex, # anova and deriving p-values via LRTs from lmer
+               broom.mixed, # extracting data from model fits
+               faux, # generate correlated values
+               tidyverse, # data wrangling and visualization 
+               ggridges, # visualization
+               viridis, # color schemes for visualization
+               kableExtra, # helps with knitting the .Rmd file
+               cowplot, # visualization tool to include multiple plots
+               ggrain, # visualization tool for raincloud plots
+               dplyr, # data manipulation tools
+               here, # controlling directories/reproducibility
+               tidyr, # formatting package
+               readr, # data importation
+               Hmisc, # visualization
+               emmeans, # estimation of marginal means and contrasts
+               sjstats, # estimation of marginal means and contrasts
+               lmerTest, # deriving p-values from lmer
+               MuMIn, # ?
+               sjPlot, # APA formatting of numerical output
+               car, # data wrangling and visualization,
+               magrittr, # to use %>%
+               ggpubr, # ? (Rose had it in her script)
+               broom, # ? (Rose had it in her script)
+               Matrix, # model specification/estimation,
+               multcomp, # multiple comparison adjustments
+               forcats, # organizing visualizations
+               gtools, # data manipulation/wrangling
+               fuzzySim, # FDR correction,
+               ez, # anova
+               apaTables, # visualization of anova output
+               #renv # package versioning/reproducibility
+               )
+
+# Global theme set
+set.seed(1234) # set random seed for reproducibility
+
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE)
+
+#theme_set(theme_bw(base_size = 13) + theme(text = element_text(size=13), 
+                             #axis.title=element_text(size=12),
+                             #strip.text = element_text(margin=margin(2,0,2,0)), 
+                             #panel.grid = element_blank()))
+
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE, fig.width=10, fig.height=8, fig.fullwidth=TRUE)
+
+plot_theme <- 
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 18), 
+        axis.text.x = element_text(size = 13), 
+        axis.title.x = element_text(size = 13), 
+        axis.text.y = element_text(size = 12), 
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", linewidth = 1.5, linetype="solid"))
+
+options(scipen=999)
+```
+
+# All Critical Target Data
+
+## Data Manipulation
+```{r}
+# Load data (1 data frame)
+crittarg_data <- read.csv(here("PADLD Data", "All PADLD Critical Target Mean Amps.csv"),stringsAsFactors=TRUE) # mean amplitudes for all critical targets
+
+crittarg_data %<>%
+  mutate(Mean.Amp = as.numeric(Mean.Amp),
+         Channel = factor(Channel),
+         Region = factor(Region, levels=c("frontal","central","parietal","occipital")),
+         Hemisphere = factor(Hemisphere, levels=c("left","midline","right")),
+         Priming=factor(Priming, levels=c("unprimed","primed")),
+         ISI = factor(ISI,levels=c("67","317")),
+         Priming.Condition = factor(Priming.Condition, levels=c("unprimed 67","primed 67","unprimed 317","primed 317")),
+         Experimental.Condition = factor(Experimental.Condition),
+         Stimulus.Type = factor(Stimulus.Type),
+         Prime.Visibility = factor (Prime.Visibility),
+         Trial.Type = factor(Trial.Type),
+         Group = factor(Group), 
+         gender.c = as.numeric(Gender) - 1.5,
+         Detailed.Language.Status = factor(Detailed.Language.Status),
+         Language.Status = factor(Language.Status,levels=c("English monolingual","English primary")),
+         lang.stat.c = as.numeric(Language.Status) - 1.5,
+         Bilingual.Type = factor(Bilingual.Type),
+         celf5 = as.numeric(CELF5.CLS),
+         celf5.c = as.numeric(scale(CELF5.CLS, center = TRUE, scale = FALSE)),
+         age.c = as.numeric(scale(Average.Age, center = TRUE, scale = FALSE)),
+         nwr.ppc.arc = asin(sqrt(as.numeric(NWR.PPC)/100)),
+         nwr.ppc.arc.c = as.numeric(scale(nwr.ppc.arc, center = TRUE, scale = FALSE)),
+         nwr.pcc.arc = asin(sqrt(as.numeric(NWR.PCC)/100)),
+         nwr.pcc.arc.c = as.numeric(scale(nwr.pcc.arc, center = TRUE, scale = FALSE)),
+         tills= as.numeric(TILLS.VA.Standard.Score),
+         tills.c = as.numeric(scale(TILLS.VA.Standard.Score, center = TRUE, scale = FALSE)),
+         toni= as.numeric(TONI.Deviation.Quotient),
+         toni.c = as.numeric(scale(TONI.Deviation.Quotient, center = TRUE, scale = FALSE)),
+         wrmt = as.numeric(WRMT.LWI.Standard.Score),
+         wrmt.c = as.numeric(scale(WRMT.LWI.Standard.Score, center = TRUE, scale = FALSE)),
+         flanker = as.numeric(Flanker.Standard.Score),
+         flanker.c = as.numeric(scale(Flanker.Standard.Score, center = TRUE, scale = FALSE)),
+         handedness = factor(Handedness),
+         hand.c = as.numeric(handedness) - 1.5,
+         pvt = factor(PVT,levels=c("50","67","83","100","> 117")))
+str(crittarg_data)
+
+# Create some data subsets
+piccrittarg_data <- subset(crittarg_data,Experimental.Condition == "picture")
+wordcrittarg_data <- subset(crittarg_data,Experimental.Condition == "word")
+maskedpic_data <- subset(crittarg_data,Experimental.Condition == "picture" & Prime.Visibility == "masked")
+maskedword_data <- subset(crittarg_data,Experimental.Condition == "word" & Prime.Visibility == "masked")
+vispic_data <- subset(crittarg_data,Experimental.Condition == "picture" & Prime.Visibility == "visible")
+visword_data <- subset(crittarg_data,Experimental.Condition == "word" & Prime.Visibility == "visible")
+DLD_data <- subset(crittarg_data,Group == "DLD")
+TL_data <- subset(crittarg_data,Group == "TL")
+dldmaskedpic_data <- subset(crittarg_data,Experimental.Condition == "picture" & Prime.Visibility == "masked" & Group == "DLD")
+dldmaskedword_data <- subset(crittarg_data,Experimental.Condition == "word" & Prime.Visibility == "masked" & Group == "DLD")
+dldvispic_data <- subset(crittarg_data,Experimental.Condition == "picture" & Prime.Visibility == "visible" & Group == "DLD")
+dldvisword_data <- subset(crittarg_data,Experimental.Condition == "word" & Prime.Visibility == "visible" & Group == "DLD")
+tlmaskedpic_data <- subset(crittarg_data,Experimental.Condition == "picture" & Prime.Visibility == "masked" & Group == "TL")
+tlmaskedword_data <- subset(crittarg_data,Experimental.Condition == "word" & Prime.Visibility == "masked" & Group == "TL")
+tlvispic_data <- subset(crittarg_data,Experimental.Condition == "picture" & Prime.Visibility == "visible" & Group == "TL")
+tlvisword_data <- subset(crittarg_data,Experimental.Condition == "word" & Prime.Visibility == "visible" & Group == "TL")
+
+# Notes:
+# Region = anteriority/posteriority; default reference level (set above) = frontal
+# Hemisphere = laterality; default reference level (set above) = left
+# Priming = primed vs. unprimed; default reference level (set above) = unprimed
+# ISI = 67 vs. 317; default reference level (set above) = 67
+# Priming Condition = Priming + ISI; default reference level (set above) = unprimed 67
+# Experimental Condition = picture vs. word; default reference level = picture
+# Stimulus Type = prime vs. target; default reference level = prime (when present)
+# Prime Visibility = masked vs. visible; default reference level = masked
+# Trial Type = critical vs. probe; default reference level = critical
+# Group = DLD vs. TL; default reference level = DLD
+# For gender, female = -0.5 (after centering), male = 0.5 (after centering)
+# Detailed Language Status = language status + bilingual type (see below); default reference level= English monolingual
+# Language Status = English monolingual vs. English primary; default reference level (set above) \ = English monolingual
+# For language status, English monolingual = -0.5 (after centering), English primary/bilingual = 0.5 (after centering)
+# Bilingual Type = sequential vs. simultaneous and the languages spoken; default reference level = NA? sequential bilingual (English-French)?
+# For handedness, L = -0.5 (after centering), R = 0.5 (after centering)
+# PVT = prime visibility threshold (shortest prime duration at which participant identified > 50% of animal primes presented at that duration); 50 vs. 67 vs. 83 vs. 100 vs. > 117; default reference level (set above) = 50
+```
+
+## Descriptives
+```{r}
+# N400 mean amplitudes by group, priming condition, experimental condition, and prime visibility (collapsed across region and hemisphere)
+crittarg_data_grouped1 <- group_by(crittarg_data, Experimental.Condition, Group, Prime.Visibility, Priming, ISI)
+summarise(crittarg_data_grouped1, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+# N400 mean amplitudes by group, priming condition, experimental condition, and prime visibility
+crittarg_data_grouped2 <- group_by(crittarg_data, Experimental.Condition, Group, Prime.Visibility, Priming, ISI, Region, Hemisphere)
+summarise(crittarg_data_grouped2, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+# # Mean amplitude by group and priming condition (for specific region and hemisphere)
+# crittarg_data %>%
+#   filter(Region == "central")%>% #& Hemisphere == "right")%>%
+#   group_by(Group, Priming.Condition)%>%
+#   summarise_at('Mean.Amp', 
+#                list(~mean(., na.rm=T), 
+#                     ~sd(., na.rm=T),
+#                     ~median(., na.rm=T),
+#                     ~min(., na.rm=T),
+#                     ~max(., na.rm=T),
+#                     ~sum(!is.na(.))))%>%
+#   dplyr::rename("n" = "sum")%>%
+#   dplyr::select(Group, Priming.Condition, n, mean, sd, median, min, max)%>%
+#   mutate(total.n = sum(n))%>%
+#   knitr::kable()
+```
+
+
+## Visualizations
+```{r}
+# N400 mean amplitude by (collapsed across experimental condition, group, prime visibility, priming condition, region, and hemisphere)
+hist(crittarg_data$Mean.Amp)
+boxplot(crittarg_data$Mean.Amp)
+
+# N400 mean amplitude by experimental condition (collapsed across group, prime visibility, priming condition, region, and hemisphere)
+plot(Mean.Amp ~ Experimental.Condition, data = crittarg_data)
+
+# N400 mean amplitude by group (collapsed acrossexperimental condition, prime visibility, priming condition, region, and hemisphere)
+plot(Mean.Amp ~ Group, data = crittarg_data)
+
+# N400 mean amplitude by group and priming condition and region  (collapsed across hemisphere) for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+```
+
+
+## Analyses
+### ANOVA analyses
+I can't get the emmeans to run for some of these models, and I'm partial to lmers anyway.
+```{r}
+## DLD ANOVAs ##
+options(contrasts = c("contr.sum", "contr.poly")) # contrast code doesn't work without this but you don't need it to just run the anova
+DLDmaskedwordanova <-ezANOVA(data=dldmaskedword_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+       # within_covariates = .(Gender,Language.Status,celf5,Average.Age,nwr.ppc.arc,tills,toni,wrmt,flanker,pvt,handedness),
+        type=3,
+        return_aov=TRUE) # because i need this for yet more post hocs
+DLDmaskedwordanova_table <- apa.ezANOVA.table(DLDmaskedwordanova)
+print(DLDmaskedwordanova)
+DLDmaskedwordemm <- emmeans(DLDmaskedwordanova$aov, ~ Priming*ISI | Region)
+DLDmaskedwordemm # this will give me cell means and confidence intervals around them
+# all pairwise comparisons 
+tidy(pairs(DLDmaskedwordemm, adjust="none"))%>%
+  mutate(signif = stars.pval(p.value))
+
+DLDviswordanova <-ezANOVA(data=dldvisword_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+        type=3)
+DLDviswordanova_table <- apa.ezANOVA.table(DLDviswordanova)
+print(DLDviswordanova)
+# DLDviswordemm <- emmeans(DLDviswordanova$aov, ~ Priming*ISI | Region)
+# DLDviswordemm # this will give me cell means and confidence intervals around them
+# # all pairwise comparisons 
+# tidy(pairs(DLDviswordemm, adjust="none"))%>%
+#   mutate(signif = stars.pval(p.value))
+
+DLDmaskedpicanova <-ezANOVA(data=dldmaskedpic_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+        type=3)
+DLDmaskedpicanova_table <- apa.ezANOVA.table(DLDmaskedpicanova)
+print(DLDmaskedpicanova)
+# DLDmaskedpicemm <- emmeans(DLDmaskedpicanova$aov, ~ Priming*ISI | Region)
+# DLDmaskedpicemm # this will give me cell means and confidence intervals around them
+# # all pairwise comparisons 
+# tidy(pairs(DLDmaskedpicemm, adjust="none"))%>%
+#   mutate(signif = stars.pval(p.value))
+
+DLDvispicanova <-ezANOVA(data=dldvispic_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+        type=3)
+DLDvispicanova_table <- apa.ezANOVA.table(DLDvispicanova)
+print(DLDvispicanova)
+DLDvispicemm1 <- emmeans(DLDvispicanova$aov, ~ Priming| Region)
+DLDvispicemm2 <- emmeans(DLDvispicanova$aov, ~ ISI | Region)
+#DLDvispicemm3 <- emmeans(DLDvispicanova$aov, ~ Priming*ISI | Region)
+#DLDvispicemm # this will give me cell means and confidence intervals around them
+# all pairwise comparisons 
+tidy(pairs(DLDvispicemm1, adjust="none"))%>%    
+  mutate(signif = stars.pval(p.value))
+tidy(pairs(DLDvispicemm2, adjust="none"))%>%    
+  mutate(signif = stars.pval(p.value))
+tidy(pairs(DLDvispicemm3, adjust="none"))%>%    
+  mutate(signif = stars.pval(p.value))
+
+## TL ANOVAs ##
+TLmaskedwordanova <-ezANOVA(data=tlmaskedword_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+        type=3)
+TLmaskedwordanova_table <- apa.ezANOVA.table(TLmaskedwordanova)
+print(TLmaskedwordanova)
+TLmaskedwordemm <- emmeans(TLmaskedwordanova$aov, ~ Priming*ISI | Region)
+TLmaskedwordemm # this will give me cell means and confidence intervals around them
+# all pairwise comparisons 
+tidy(pairs(TLmaskedwordemm, adjust="none"))%>%    
+  mutate(signif = stars.pval(p.value))
+
+TLviswordanova <-ezANOVA(data=tlvisword_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+        type=3)
+TLviswordanova_table <- apa.ezANOVA.table(TLviswordanova)
+print(TLviswordanova)
+TLviswordemm <- emmeans(TLviswordanova$aov, ~ Priming*ISI | Region)
+TLviswordemm # this will give me cell means and confidence intervals around them
+# all pairwise comparisons 
+tidy(pairs(TLviswordemm, adjust="none"))%>%    
+  mutate(signif = stars.pval(p.value))
+
+TLmaskedpicanova <-ezANOVA(data=tlmaskedpic_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+        type=3)
+TLmaskedpicanova_table <- apa.ezANOVA.table(TLmaskedpicanova)
+print(TLmaskedpicanova)
+TLmaskedpicemm <- emmeans(TLmaskedpicanova$aov, ~ Priming*ISI | Region)
+TLmaskedpicemm # this will give me cell means and confidence intervals around them
+# all pairwise comparisons 
+tidy(pairs(TLmaskedpicemm, adjust="none"))%>%    
+  mutate(signif = stars.pval(p.value))
+
+TLvispicanova <-ezANOVA(data=tlvispic_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Region,Hemisphere), # within-subjects variable
+        type=3)
+TLvispicanova_table <- apa.ezANOVA.table(TLvispicanova)
+print(TLvispicanova)
+TLvispicemm <- emmeans(TLvispicanova$aov, ~ Priming*ISI | Region)
+TLvispicemm # this will give me cell means and confidence intervals around them
+# all pairwise comparisons 
+tidy(pairs(TLvispicemm, adjust="none"))%>%    
+  mutate(signif = stars.pval(p.value))
+```
+
+### Finding the maximal convergent model (Prime*ISI*Region*Hemisphere)
+#### DLD data
+##### Masked Word Data
+FINAL BASE MODEL: DLDmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data
+```{r}
+DLDmaskedwordm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(DLDmaskedwordm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+DLDmaskedwordm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+DLDmaskedwordm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the better fit of the two
+anova(DLDmaskedwordm3,DLDmaskedwordm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDmaskedwordm3 over DLDmaskedwordm2; continuing to build random effects
+
+DLDmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the better fit of the two
+anova(DLDmaskedwordm3,DLDmaskedwordm4) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDmaskedwordm4 over DLDmaskedwordm3; now to test the covariates!
+```
+##### Masked Picture Data
+FINAL BASE MODEL: DLDmaskedpicm6 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data
+```{r}
+DLDmaskedpicm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(DLDmaskedpicm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+DLDmaskedpicm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+DLDmaskedpicm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(DLDmaskedpicm3,DLDmaskedpicm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDmaskedpicm3 over DLDmaskedpicm2; continuing to build random effects
+
+DLDmaskedpicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so seeing how a ranodm slope of ISI compares to a random slope of Priming
+
+DLDmaskedpicm5 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(DLDmaskedpicm3,DLDmaskedpicm5) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm3 over DLDmaskedpicm5; double checking an additive random slope isn't better since models with each variable alone converged but not when they interacted
+
+DLDmaskedpicm6 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(DLDmaskedpicm3,DLDmaskedpicm6) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDmaskedpicm6 over DLDmaskedpicm3; now to test the covariates!
+```
+##### Visible Word Data
+FINAL BASE MODEL: DLDviswordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldvisword_data
+```{r}
+DLDviswordm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(DLDviswordm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+DLDviswordm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+DLDviswordm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(DLDviswordm3,DLDviswordm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDviswordm3 over DLDviswordm2; continuing to buid the random effects
+
+DLDviswordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(DLDviswordm3,DLDviswordm4) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDviswordm4 over DLDviswordm3; now to test the covariates!
+```
+##### Visible Picture Data
+FINAL BASE MODEL:DLDvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+ISI|Participant.ID), data=dldvispic_data
+```{r}
+DLDvispicm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(DLDvispicm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+DLDvispicm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+DLDvispicm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(DLDvispicm3,DLDvispicm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm2 over DLDvispicm3; continuing to build random effects
+
+DLDvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# converges! comparing models to ensure this model has the best fit of the two
+anova(DLDvispicm4,DLDvispicm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDvispicm4 over DLDvispicm2; double checking that an interactive random slope isn't better
+
+DLDvispicm5 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, double checking that an additive random slope also isn't better
+
+DLDvispicm6 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(DLDvispicm4,DLDvispicm6) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer DLDvispicm4 over DLDvispicm6; now to test the covariates!
+```
+#### TL data
+##### Masked Word Data
+FINAL BASE MODEL: TLmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data
+```{r}
+TLmaskedwordm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(TLmaskedwordm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+TLmaskedwordm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+TLmaskedwordm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLmaskedwordm3,TLmaskedwordm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLmaskedwordm3 over TLmaskedwordm2; continuing to build random effects
+
+TLmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLmaskedwordm3,TLmaskedwordm4) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLmaskedwordm4 over TLmaskedwordm3; now to test the covariates!
+```
+##### Masked Picture Data
+FINAL BASE MODEL:TLmaskedpicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data
+```{r}
+TLmaskedpicm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(TLmaskedpicm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+TLmaskedpicm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+TLmaskedpicm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLmaskedpicm3,TLmaskedpicm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLmaskedpicm3 over TLmaskedpicm2; continuing to build random effects
+
+TLmaskedpicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLmaskedpicm3,TLmaskedpicm4) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLmaskedpicm4 over TLmaskedpicm3; now to test the covariates!
+```
+##### Visible Word Data
+FINAL BASE MODEL: TLviswordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlvisword_data
+```{r}
+TLviswordm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # isSingular warning, so checking random effects' variances
+summary(rePCA(TLviswordm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+TLviswordm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+TLviswordm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLviswordm3,TLviswordm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLviswordm3 over TLviswordm2; continuing to build random effects
+
+TLviswordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLviswordm3,TLviswordm4) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLviswordm4 over TLviswordm3; now to test the covariates!
+```
+##### Visible Picture Data
+FINAL BASE MODEL: TLvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlvispic_data
+```{r}
+TLvispicm1 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID)+ (1|Channel), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))# isSingular warning, so checking random effects' variances
+summary(rePCA(TLvispicm1)) # PCA results indicate no variability in the random effects for Channel, so trying a model with that random effect removed
+
+TLvispicm2 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! now building random effects
+
+TLvispicm3 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLvispicm3,TLvispicm2) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLvispicm3 over TLvispicm2
+
+TLvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # converges! comparing models to ensure this model has the best fit of the two
+anova(TLvispicm3,TLvispicm4) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLvispicm4 over TLvispicm3; now to test the covariates!
+```
+
+### Testing impact of covariates (Prime*ISI*Region*Hemisphere)
+#### DLD data
+##### Masked Word Data
+FINAL MODEL: DLDmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data
+```{r}
+DLDmaskedwordm4.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.gender
+
+DLDmaskedwordm4.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.age
+
+DLDmaskedwordm4.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.langstat
+
+DLDmaskedwordm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.celf
+
+DLDmaskedwordm4.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + nwr.ppc.arc.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.nwrppc
+
+DLDmaskedwordm4.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  nwr.pcc.arc.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.nwrpcc
+
+DLDmaskedwordm4.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  tills.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(DLDmaskedwordm4, DLDmaskedwordm4.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.tills
+
+DLDmaskedwordm4.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  toni.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.toni
+
+DLDmaskedwordm4.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  wrmt.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.wrmt
+
+DLDmaskedwordm4.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  flanker.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(DLDmaskedwordm4,DLDmaskedwordm4.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedwordm4 over DLDmaskedwordm4.flanker
+
+#DLDmaskedwordm4.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  hand.c + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+#anova(DLDmaskedwordm4,DLDmaskedwordm4.handedness) # all DLD participants are right handed so handedness is completely redundant and, thus, cannot improve model fit --> prefer DLDmaskedwordm4 over DLDmaskedwordm4.handedness
+
+DLDmaskedwordm4.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  pvt + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+#anova(DLDmaskedwordm4,DLDmaskedwordm4.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> DLDmaskedwordm4.pvt has a (near) singular fit, so prefer DLDmaskedwordm4 over DLDmaskedwordm4.pvt
+```
+##### Masked Picture Data
+FINAL MODEL: DLDmaskedpicm6 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data
+```{r}
+DLDmaskedpicm6.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.gender
+
+DLDmaskedpicm6.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.age
+
+DLDmaskedpicm6.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.langstat
+
+DLDmaskedpicm6.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.celf
+
+DLDmaskedpicm6.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + nwr.ppc.arc.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.nwrppc
+
+DLDmaskedpicm6.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  nwr.pcc.arc.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.nwrpcc
+
+DLDmaskedpicm6.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  tills.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(DLDmaskedpicm6, DLDmaskedpicm6.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.tills
+
+DLDmaskedpicm6.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  toni.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.toni
+
+DLDmaskedpicm6.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  wrmt.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.wrmt
+
+DLDmaskedpicm6.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  flanker.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.flanker
+
+#DLDmaskedpicm6.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  hand.c + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+#anova(DLDmaskedpicm6,DLDmaskedpicm6.handedness) # all DLD participants are right handed so handedness is completely redundant and, thus, cannot improve model fit --> prefer DLDmaskedpicm6 over DLDmaskedpicm6.handedness
+
+DLDmaskedpicm6.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  pvt + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+anova(DLDmaskedpicm6,DLDmaskedpicm6.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDmaskedpicm6 over DLDmaskedpicm6.pvt
+```
+##### Visible Word Data
+FINAL MODEL: DLDviswordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldvisword_data
+```{r}
+DLDviswordm4.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.gender
+
+DLDviswordm4.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.age
+
+DLDviswordm4.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.langstat
+
+DLDviswordm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.celf
+
+DLDviswordm4.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + nwr.ppc.arc.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.nwrppc
+
+DLDviswordm4.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  nwr.pcc.arc.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.nwrpcc
+
+DLDviswordm4.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  tills.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(DLDviswordm4, DLDviswordm4.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.tills
+
+DLDviswordm4.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  toni.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDviswordm4 over DLDviswordm4.toni
+
+DLDviswordm4.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  wrmt.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+# anova(DLDviswordm4,DLDviswordm4.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> DLDviswordm4.wrmt has (near) singular fit, so prefer DLDviswordm4 over DLDviswordm4.wrmt
+
+DLDviswordm4.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  flanker.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+#anova(DLDviswordm4,DLDviswordm4.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> DLDviswordm4.flanker has (near) singular fit, so  prefer DLDviswordm4 over DLDviswordm4.flanker
+
+#DLDviswordm4.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  hand.c + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+#anova(DLDviswordm4,DLDviswordm4.handedness) # all DLD participants are right handed so handedness is completely redundant and, thus, cannot improve model fit --> prefer DLDviswordm4 over DLDviswordm4.handedness
+
+DLDviswordm4.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  pvt + (1+Priming*ISI|Participant.ID), data=dldvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+anova(DLDviswordm4,DLDviswordm4.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model -->  DLDviswordm4.pvt has (near) singular fit, so  prefer DLDviswordm4 over DLDviswordm4.pvt
+```
+##### Visible Picture Data
+FINAL MODEL: DLDvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+ISI|Participant.ID), data=dldvispic_data
+```{r}
+DLDvispicm4.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.gender
+
+DLDvispicm4.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.age
+
+DLDvispicm4.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.langstat
+
+DLDvispicm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.celf
+
+DLDvispicm4.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + nwr.ppc.arc.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.nwrppc
+
+DLDvispicm4.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  nwr.pcc.arc.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.nwrpcc
+
+DLDvispicm4.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  tills.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(DLDvispicm4, DLDvispicm4.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.tills
+
+DLDvispicm4.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  toni.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.toni
+
+DLDvispicm4.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  wrmt.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.wrmt
+
+DLDvispicm4.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  flanker.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(DLDvispicm4,DLDvispicm4.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer DLDvispicm4 over DLDvispicm4.flanker
+
+#DLDvispicm4.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  hand.c + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+#anova(DLDvispicm4,DLDvispicm4.handedness) # all DLD participants are right handed so handedness is completely redundant and, thus, cannot improve model fit --> prefer DLDvispicm4 over DLDvispicm4.handedness
+
+DLDvispicm4.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + pvt + (1+ISI|Participant.ID), data=dldvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+#anova(DLDvispicm4,DLDvispicm4.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model -->  DLDviswordm4.pvt has (near) singular fit, so prefer DLDvispicm4 over DLDvispicm4.pvt
+```
+
+#### TL data
+##### Masked Word Data
+FINAL MODEL: TLmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere +(1+Priming*ISI|Participant.ID), data=tlmaskedword_data
+```{r}
+TLmaskedwordm4.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.gender
+
+TLmaskedwordm4.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.age
+
+TLmaskedwordm4.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.langstat
+
+TLmaskedwordm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.celf
+
+TLmaskedwordm4.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere +nwr.ppc.arc.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.nwrppc
+
+TLmaskedwordm4.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + nwr.pcc.arc.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.nwrpcc
+
+TLmaskedwordm4.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + tills.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(TLmaskedwordm4, TLmaskedwordm4.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.tills
+
+TLmaskedwordm4.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + toni.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.toni
+
+TLmaskedwordm4.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + wrmt.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.wrmt
+
+TLmaskedwordm4.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + flanker.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.flanker
+
+TLmaskedwordm4.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + hand.c + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.handedness) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.handedness
+
+TLmaskedwordm4.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + pvt + (1+Priming*ISI|Participant.ID), data=tlmaskedword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+anova(TLmaskedwordm4,TLmaskedwordm4.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedwordm4 over TLmaskedwordm4.pvt
+```
+##### Masked Picture Data
+FINAL MODEL: TLmaskedpicm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data
+```{r}
+TLmaskedpicm4.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(TLmaskedpicm4,TLmaskedpicm4.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4 over TLmaskedpicm4.gender
+
+TLmaskedpicm4.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(TLmaskedpicm4,TLmaskedpicm4.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4 over TLmaskedpicm4.age
+
+TLmaskedpicm4.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(TLmaskedpicm4,TLmaskedpicm4.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4 over TLmaskedpicm4.langstat
+
+TLmaskedpicm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(TLmaskedpicm4,TLmaskedpicm4.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4
+
+TLmaskedpicm4.celf.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c + nwr.ppc.arc.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(TLmaskedpicm4.celf,TLmaskedpicm4.celf.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.nwrppc
+
+TLmaskedpicm4.celf.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c +  nwr.pcc.arc.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(TLmaskedpicm4.celf,TLmaskedpicm4.celf.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.nwrpcc
+
+TLmaskedpicm4.celf.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c +  tills.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(TLmaskedpicm4.celf, TLmaskedpicm4.celf.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.tills
+
+TLmaskedpicm4.celf.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c +  toni.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(TLmaskedpicm4.celf,TLmaskedpicm4.celf.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.toni
+
+TLmaskedpicm4.celf.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c +  wrmt.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(TLmaskedpicm4.celf,TLmaskedpicm4.celf.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.wrmt
+
+TLmaskedpicm4.celf.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c +  flanker.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(TLmaskedpicm4.celf,TLmaskedpicm4.celf.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.flanker
+
+TLmaskedpicm4.celf.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c +  hand.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+anova(TLmaskedpicm4.celf,TLmaskedpicm4.celf.handedness)  # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.handedness
+
+TLmaskedpicm4.celf.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + celf5.c +  pvt + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+anova(TLmaskedpicm4.celf,TLmaskedpicm4.celf.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLmaskedpicm4.celf over TLmaskedpicm4.celf.pvt
+```
+##### Visible Word Data
+FINAL MODEL: TLviswordm4.langstat.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  +  wrmt.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data
+```{r}
+TLviswordm4.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(TLviswordm4,TLviswordm4.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4 over TLviswordm4.gender
+
+TLviswordm4.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(TLviswordm4,TLviswordm4.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4 over TLviswordm4.age
+
+TLviswordm4.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(TLviswordm4,TLviswordm4.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLviswordm4.langstat over TLviswordm4 
+
+TLviswordm4.langstat.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c + celf5.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(TLviswordm4.langstat,TLviswordm4.langstat.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat over TLviswordm4.langstat.celf
+
+TLviswordm4.langstat.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c   + nwr.ppc.arc.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(TLviswordm4.langstat,TLviswordm4.langstat.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat over TLviswordm4.langstat.nwrppc
+
+TLviswordm4.langstat.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  +  nwr.pcc.arc.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(TLviswordm4.langstat,TLviswordm4.langstat.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat over TLviswordm4.langstat.nwrpcc
+
+TLviswordm4.langstat.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  +  tills.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(TLviswordm4.langstat, TLviswordm4.langstat.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat over TLviswordm4.langstat.tills
+
+TLviswordm4.langstat.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  +  toni.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(TLviswordm4.langstat,TLviswordm4.langstat.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat over TLviswordm4.langstat.toni
+
+TLviswordm4.langstat.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  +  wrmt.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(TLviswordm4.langstat,TLviswordm4.langstat.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> significant: prefer TLviswordm4.langstat.wrmt over TLviswordm4.langstat
+
+TLviswordm4.langstat.wrmt.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  + wrmt.c +   flanker.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(TLviswordm4.langstat.wrmt,TLviswordm4.langstat.wrmt.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat.wrmt over TLviswordm4.langstat.wrmt.flanker
+
+TLviswordm4.langstat.wrmt.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  + wrmt.c +   hand.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+anova(TLviswordm4.langstat.wrmt,TLviswordm4.langstat.wrmt.handedness) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat.wrmt over TLviswordm4.langstat.wrmt.handedness
+
+TLviswordm4.langstat.wrmt.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  + wrmt.c +   pvt + (1+Priming*ISI|Participant.ID), data=tlvisword_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+anova(TLviswordm4.langstat.wrmt,TLviswordm4.langstat.wrmt.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLviswordm4.langstat.wrmt over TLviswordm4.langstat.wrmt.pvt
+```
+##### Visible Picture Data
+FINAL MODEL: TLvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlvispic_data
+```{r}
+TLvispicm4.gender <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + gender.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether gender significantly improves model fit
+anova(TLvispicm4,TLvispicm4.gender)# the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.gender
+
+TLvispicm4.age <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + age.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether age significantly improves model fit
+anova(TLvispicm4,TLvispicm4.age) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.age
+
+TLvispicm4.langstat <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + lang.stat.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether language status significantly improves model fit
+anova(TLvispicm4,TLvispicm4.langstat) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> TLvispicm4.langstat has (near) singular fit, so prefer TLvispicm4 over TLvispicm4.langstat
+
+TLvispicm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether CELF-5 CLS significantly improves model fit
+anova(TLvispicm4,TLvispicm4.celf) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.celf
+
+TLvispicm4.nwrppc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + nwr.ppc.arc.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PPC significantly improves model fit
+anova(TLvispicm4,TLvispicm4.nwrppc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.nwrppc
+
+TLvispicm4.nwrpcc <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  nwr.pcc.arc.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether NWR PCC significantly improves model fit
+anova(TLvispicm4,TLvispicm4.nwrpcc) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.nwrpcc
+
+TLvispicm4.tills <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  tills.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TILLS VA Standard Score significantly improves model fit
+anova(TLvispicm4, TLvispicm4.tills) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.tills
+
+TLvispicm4.toni <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  toni.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether TONI Deviation Quotient significantly improves model fit
+anova(TLvispicm4,TLvispicm4.toni) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.toni
+
+TLvispicm4.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  wrmt.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether WRMT LWI Standard Score significantly improves model fit
+anova(TLvispicm4,TLvispicm4.wrmt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.wrmt
+
+TLvispicm4.flanker <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  flanker.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether Flanker Standard Score significantly improves model fit
+anova(TLvispicm4,TLvispicm4.flanker) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.flanker
+
+TLvispicm4.handedness <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere+  hand.c + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether handedness significantly improves model fit
+anova(TLvispicm4,TLvispicm4.handedness) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.handedness
+
+TLvispicm4.pvt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + pvt + (1+Priming*ISI|Participant.ID), data=tlvispic_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # to determine whether prime visibility threshold significantly improves model fit
+anova(TLvispicm4,TLvispicm4.pvt) # the smaller/lower the AIC and/or BIC value, the “better” is the predictive performance of the model; a very small p-value (< .001) means that adding the additional IVs to the model leads to a significantly improved fit over the reduced model --> not significant: prefer TLvispicm4 over TLvispicm4.pvt
+```
+
+### Interpreting lmers' output (Prime*ISI*Region*Hemisphere)
+#### DLD data
+##### Masked Word Data
+Results:
+- sig interaction of priming x region but no sig diffs btw priming conditions (overall, by hemisphere, by region, or by hemisphere and region)
+```{r}
+dldmaskedword_data$Priming <- contr_code_anova(dldmaskedword_data$Priming)
+dldmaskedword_data$ISI <- contr_code_anova(dldmaskedword_data$ISI)
+dldmaskedword_data$Region <- contr_code_anova(dldmaskedword_data$Region)
+dldmaskedword_data$Hemisphere <- contr_code_anova(dldmaskedword_data$Hemisphere)
+
+DLDmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldmaskedword_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+anova(DLDmaskedwordm4)
+tidy(DLDmaskedwordm4)%>%
+  mutate(signif = stars.pval(p.value))
+
+emm1 <- emmeans(DLDmaskedwordm4, pairwise ~ Priming | Region,adjust = "none")
+emm1
+
+DLDmaskedwordemm1 <- emmeans(DLDmaskedwordm4, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedwordemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldmaskedwordcontrast_df1 <- as.data.frame(summary(contrast_results))
+dldmaskedwordcontrast_df1$p_value_stars <- cut(dldmaskedwordcontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDmaskedwordemm2 <- emmeans(DLDmaskedwordm4, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedwordemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldmaskedwordcontrast_df2 <- as.data.frame(summary(contrast_results))
+dldmaskedwordcontrast_df2$p_value_stars <- cut(dldmaskedwordcontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+DLDmaskedwordemm3 <- emmeans(DLDmaskedwordm4, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedwordemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+dldmaskedwordcontrast_df3 <- as.data.frame(summary(contrast_results))
+dldmaskedwordcontrast_df3$p_value_stars <- cut(dldmaskedwordcontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDmaskedwordemm4 <- emmeans(DLDmaskedwordm4, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedwordemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldmaskedwordcontrast_df4 <- as.data.frame(summary(contrast_results))
+dldmaskedwordcontrast_df4$p_value_stars <- cut(dldmaskedwordcontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+dldmaskedwordcombined_df <- bind_rows(dldmaskedwordcontrast_df1, dldmaskedwordcontrast_df2,dldmaskedwordcontrast_df3,dldmaskedwordcontrast_df4)
+```
+##### Masked Picture Data
+Results:
+- sig interactions of priming x ISI and priming x region but no sig diffs btw priming conditions when corrected for multiple comparisons (uncorrected p-value: sig priming effect at central region; p = .047)
+- when corrected for multiple comparisons, no sig diffs btw priming conditions (overall, by hemisphere, by region, or by hemisphere and region)
+- uncorrected p-values: sig diffs btw priming conditions at ISI 67 @ central (typical priming effect), ISI 317 @ occipital (unprimed more attenuated than primed--opposite of typical priming effect), and ISI 317 @ left occipital (unprimed more attenuated than primed--opposite of typical priming effect)
+```{r}
+dldmaskedpic_data$Priming <- contr_code_anova(dldmaskedpic_data$Priming)
+dldmaskedpic_data$ISI <- contr_code_anova(dldmaskedpic_data$ISI)
+dldmaskedpic_data$Region <- contr_code_anova(dldmaskedpic_data$Region)
+dldmaskedpic_data$Hemisphere <- contr_code_anova(dldmaskedpic_data$Hemisphere)
+
+DLDmaskedpicm6 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming+ISI|Participant.ID), data=dldmaskedpic_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(DLDmaskedpicm6)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(DLDmaskedpicm6)
+
+emm1 <- emmeans(DLDmaskedpicm6, pairwise ~ Priming | ISI,adjust = "none")
+emm1
+emm2 <- emmeans(DLDmaskedpicm6, pairwise ~ Priming | Region,adjust = "none")
+emm2
+
+DLDmaskedpicemm1 <- emmeans(DLDmaskedpicm6, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedpicemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldmaskedpiccontrast_df1 <- as.data.frame(summary(contrast_results))
+dldmaskedpiccontrast_df1$p_value_stars <- cut(dldmaskedpiccontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDmaskedpicemm2 <- emmeans(DLDmaskedpicm6, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedpicemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldmaskedpiccontrast_df2 <- as.data.frame(summary(contrast_results))
+dldmaskedpiccontrast_df2$p_value_stars <- cut(dldmaskedpiccontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+DLDmaskedpicemm3 <- emmeans(DLDmaskedpicm6, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedpicemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+dldmaskedpiccontrast_df3 <- as.data.frame(summary(contrast_results))
+dldmaskedpiccontrast_df3$p_value_stars <- cut(dldmaskedpiccontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDmaskedpicemm4 <- emmeans(DLDmaskedpicm6, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDmaskedpicemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldmaskedpiccontrast_df4 <- as.data.frame(summary(contrast_results))
+dldmaskedpiccontrast_df4$p_value_stars <- cut(dldmaskedpiccontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+dldmaskedpiccombined_df <- bind_rows(dldmaskedpiccontrast_df1, dldmaskedpiccontrast_df2,dldmaskedpiccontrast_df3,dldmaskedpiccontrast_df4)
+```
+##### Visible Word Data
+- no sig main effect of or interactions with priming and no sig diffs btw priming conditions (overall, by hemisphere, by region, or by hemisphere and region)
+```{r}
+dldvisword_data$Priming <- contr_code_anova(dldvisword_data$Priming)
+dldvisword_data$ISI <- contr_code_anova(dldvisword_data$ISI)
+dldvisword_data$Region <- contr_code_anova(dldvisword_data$Region)
+dldvisword_data$Hemisphere <- contr_code_anova(dldvisword_data$Hemisphere)
+
+DLDviswordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=dldvisword_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(DLDviswordm4)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(DLDviswordm4)
+
+DLDviswordemm1 <- emmeans(DLDviswordm4, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDviswordemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldviswordcontrast_df1 <- as.data.frame(summary(contrast_results))
+dldviswordcontrast_df1$p_value_stars <- cut(dldviswordcontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDviswordemm2 <- emmeans(DLDviswordm4, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDviswordemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldviswordcontrast_df2 <- as.data.frame(summary(contrast_results))
+dldviswordcontrast_df2$p_value_stars <- cut(dldviswordcontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+DLDviswordemm3 <- emmeans(DLDviswordm4, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDviswordemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+dldviswordcontrast_df3 <- as.data.frame(summary(contrast_results))
+dldviswordcontrast_df3$p_value_stars <- cut(dldviswordcontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDviswordemm4 <- emmeans(DLDviswordm4, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDviswordemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldviswordcontrast_df4 <- as.data.frame(summary(contrast_results))
+dldviswordcontrast_df4$p_value_stars <- cut(dldviswordcontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+dldviswordcombined_df <- bind_rows(dldviswordcontrast_df1, dldviswordcontrast_df2,dldviswordcontrast_df3,dldviswordcontrast_df4)
+```
+##### Visible Picture Data
+Results:
+- sig interaction of priming x region driven by sig diffs btw priming conditions at frontal (p = .004), central (p = .003), and occipital regions (p < .001) (sig even when corrected for multiple comparisons)
+- when corrected for multiple comparisons, sig diffs btw priming conditions at ISI 317 @ occipital (unprimed more attenuated than primed--opposite of typical priming effect)
+- uncorrected p-values: sig diffs btw priming conditions at ISI 317 @ frontal (typical priming effect), ISI 317 @ central (typical priming effect), ISI 317 @ occipital (unprimed more attenuated than primed--opposite of typical priming effect), ISI 317 @ left occipital (unprimed more attenuated than primed--opposite of typical priming effect), ISI 317 @ midline central (typical priming effect), ISI 317 @ right frontal (typical priming effect), and ISI 317 @ right occipital (unprimed more attenuated than primed--opposite of typical priming effect)
+```{r}
+dldvispic_data$Priming <- contr_code_anova(dldvispic_data$Priming)
+dldvispic_data$ISI <- contr_code_anova(dldvispic_data$ISI)
+dldvispic_data$Region <- contr_code_anova(dldvispic_data$Region)
+dldvispic_data$Hemisphere <- contr_code_anova(dldvispic_data$Hemisphere)
+
+DLDvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+ISI|Participant.ID), data=dldvispic_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(DLDvispicm4)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(DLDvispicm4)
+
+emm1 <- emmeans(DLDvispicm4, pairwise ~ Priming | Region,adjust = "none")
+emm1
+
+
+DLDvispicemm1 <- emmeans(DLDvispicm4, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDvispicemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldvispiccontrast_df1 <- as.data.frame(summary(contrast_results))
+dldvispiccontrast_df1$p_value_stars <- cut(dldvispiccontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDvispicemm2 <- emmeans(DLDvispicm4, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDvispicemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldvispiccontrast_df2 <- as.data.frame(summary(contrast_results))
+dldvispiccontrast_df2$p_value_stars <- cut(dldvispiccontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+DLDvispicemm3 <- emmeans(DLDvispicm4, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDvispicemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+dldvispiccontrast_df3 <- as.data.frame(summary(contrast_results))
+dldvispiccontrast_df3$p_value_stars <- cut(dldvispiccontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+DLDvispicemm4 <- emmeans(DLDvispicm4, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(DLDvispicemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+dldvispiccontrast_df4 <- as.data.frame(summary(contrast_results))
+dldvispiccontrast_df4$p_value_stars <- cut(dldvispiccontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+dldvispiccombined_df <- bind_rows(dldvispiccontrast_df1, dldvispiccontrast_df2,dldvispiccontrast_df3,dldvispiccontrast_df4)
+```
+
+#### TL data
+##### Masked Word Data
+Results:
+- sig interaction of priming x ISI x region but no sig diffs btw priming conditions (overall, by hemisphere, by region, or by hemisphere and region)
+```{r}
+tlmaskedword_data$Priming <- contr_code_anova(tlmaskedword_data$Priming)
+tlmaskedword_data$ISI <- contr_code_anova(tlmaskedword_data$ISI)
+tlmaskedword_data$Region <- contr_code_anova(tlmaskedword_data$Region)
+tlmaskedword_data$Hemisphere <- contr_code_anova(tlmaskedword_data$Hemisphere)
+
+TLmaskedwordm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere +(1+Priming*ISI|Participant.ID), data=tlmaskedword_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(TLmaskedwordm4)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(TLmaskedwordm4)
+
+emm1 <- emmeans(TLmaskedwordm4, pairwise ~ Priming*ISI | Region,adjust = "none")
+emm1
+
+
+TLmaskedwordemm1 <- emmeans(TLmaskedwordm4, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedwordemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlmaskedwordcontrast_df1 <- as.data.frame(summary(contrast_results))
+tlmaskedwordcontrast_df1$p_value_stars <- cut(tlmaskedwordcontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLmaskedwordemm2 <- emmeans(TLmaskedwordm4, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedwordemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlmaskedwordcontrast_df2 <- as.data.frame(summary(contrast_results))
+tlmaskedwordcontrast_df2$p_value_stars <- cut(tlmaskedwordcontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+TLmaskedwordemm3 <- emmeans(TLmaskedwordm4, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedwordemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+tlmaskedwordcontrast_df3 <- as.data.frame(summary(contrast_results))
+tlmaskedwordcontrast_df3$p_value_stars <- cut(tlmaskedwordcontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLmaskedwordemm4 <- emmeans(TLmaskedwordm4, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedwordemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlmaskedwordcontrast_df4 <- as.data.frame(summary(contrast_results))
+tlmaskedwordcontrast_df4$p_value_stars <- cut(tlmaskedwordcontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+tlmaskedwordcombined_df <- bind_rows(tlmaskedwordcontrast_df1, tlmaskedwordcontrast_df2,tlmaskedwordcontrast_df3,tlmaskedwordcontrast_df4)
+```
+##### Masked Picture Data
+Results:
+- sig interaction of priming x region driven by sig diffs btw priming conditions at frontal region (p = .004) and priming x ISI x region driven by sig diffs btw priming conditions at ISI 67 @ frontal (typical priming effect) even when corrected for multiple comparisons
+- uncorrected p-values: sig diffs btw priming conditions at ISI 67 @ frontal (typical priming effect), ISI 317 @ central (typical priming effect), ISI 67 @ occipital (unprimed more attenuated than primed--opposite of typical priming effect), ISI 67 @ left occipital (unprimed more attenuated than primed--opposite of typical priming effect), ISI 67 @ midline frontal (typical priming effect), ISI 317 @ midline central (typical priming effect), and ISI 67 @ right frontal (typical priming effect) 
+```{r}
+tlmaskedpic_data$Priming <- contr_code_anova(tlmaskedpic_data$Priming)
+tlmaskedpic_data$ISI <- contr_code_anova(tlmaskedpic_data$ISI)
+tlmaskedpic_data$Region <- contr_code_anova(tlmaskedpic_data$Region)
+tlmaskedpic_data$Hemisphere <- contr_code_anova(tlmaskedpic_data$Hemisphere)
+
+TLmaskedpicm4.celf <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere  + celf5.c + (1+Priming*ISI|Participant.ID), data=tlmaskedpic_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(TLmaskedpicm4.celf)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(TLmaskedpicm4.celf)
+
+emm1 <- emmeans(TLmaskedpicm4.celf, pairwise ~ Priming | Region,adjust = "none")
+emm1
+emm2 <- emmeans(TLmaskedpicm4.celf, pairwise ~ Priming*ISI | Region,adjust = "none")
+emm2
+
+
+TLmaskedpicemm1 <- emmeans(TLmaskedpicm4.celf, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedpicemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlmaskedpiccontrast_df1 <- as.data.frame(summary(contrast_results))
+tlmaskedpiccontrast_df1$p_value_stars <- cut(tlmaskedpiccontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLmaskedpicemm2 <- emmeans(TLmaskedpicm4.celf, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedpicemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlmaskedpiccontrast_df2 <- as.data.frame(summary(contrast_results))
+tlmaskedpiccontrast_df2$p_value_stars <- cut(tlmaskedpiccontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+TLmaskedpicemm3 <- emmeans(TLmaskedpicm4.celf, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedpicemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+tlmaskedpiccontrast_df3 <- as.data.frame(summary(contrast_results))
+tlmaskedpiccontrast_df3$p_value_stars <- cut(tlmaskedpiccontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLmaskedpicemm4 <- emmeans(TLmaskedpicm4.celf, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLmaskedpicemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlmaskedpiccontrast_df4 <- as.data.frame(summary(contrast_results))
+tlmaskedpiccontrast_df4$p_value_stars <- cut(tlmaskedpiccontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+tlmaskedpiccombined_df <- bind_rows(tlmaskedpiccontrast_df1, tlmaskedpiccontrast_df2,tlmaskedpiccontrast_df3,tlmaskedpiccontrast_df4)
+```
+##### Visible Word Data
+Results:
+- sig interaction of priming x region driven by sig diffs btw priming conditions at central region (p = .003) when corrected for multiple comparisons (unccorrected p-values: also driven by sig diffs btw priming conditions at frontal (p = .026) and occipital region (p = .019))
+- when corrected for multiple comparisons, sig diffs btw priming conditions at ISI 317 @ central (typical priming effect)
+- uncorrected p-values: sig diffs btw priming conditions at ISI 317 @ frontal (typical priming effect), ISI 317 @ central (typical priming effect), ISI 67 @ occipital (unprimed more attenuated than primed--opposite of typical priming effect), ISI 317 @ right central (typical priming effect)
+```{r}
+tlvisword_data$Priming <- contr_code_anova(tlvisword_data$Priming)
+tlvisword_data$ISI <- contr_code_anova(tlvisword_data$ISI)
+tlvisword_data$Region <- contr_code_anova(tlvisword_data$Region)
+tlvisword_data$Hemisphere <- contr_code_anova(tlvisword_data$Hemisphere)
+
+TLviswordm4.langstat.wrmt <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + lang.stat.c  +  wrmt.c + (1+Priming*ISI|Participant.ID), data=tlvisword_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(TLviswordm4.langstat.wrmt)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(TLviswordm4.langstat.wrmt)
+
+emm1 <- emmeans(TLviswordm4.langstat.wrmt, pairwise ~ Priming | Region,adjust = "none")
+emm1
+
+
+TLviswordemm1 <- emmeans(TLviswordm4.langstat.wrmt, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLviswordemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlviswordcontrast_df1 <- as.data.frame(summary(contrast_results))
+tlviswordcontrast_df1$p_value_stars <- cut(tlviswordcontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLviswordemm2 <- emmeans(TLviswordm4.langstat.wrmt, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLviswordemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlviswordcontrast_df2 <- as.data.frame(summary(contrast_results))
+tlviswordcontrast_df2$p_value_stars <- cut(tlviswordcontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+TLviswordemm3 <- emmeans(TLviswordm4.langstat.wrmt, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLviswordemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+tlviswordcontrast_df3 <- as.data.frame(summary(contrast_results))
+tlviswordcontrast_df3$p_value_stars <- cut(tlviswordcontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLviswordemm4 <- emmeans(TLviswordm4.langstat.wrmt, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLviswordemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlviswordcontrast_df4 <- as.data.frame(summary(contrast_results))
+tlviswordcontrast_df4$p_value_stars <- cut(tlviswordcontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+tlviswordcombined_df <- bind_rows(tlviswordcontrast_df1, tlviswordcontrast_df2,tlviswordcontrast_df3,tlviswordcontrast_df4)
+```
+##### Visible Picture Data
+Results:
+- sig main effect of priming and sig interaction of priming x region driven by sig diffs btw priming conditions at front (p < .001), central (p < .001), and occipital regions (p = .006) even when corrected for multiple comparisons
+- when corrected for multiple comparisons, sig diffs btw priming conditions at ISI 317 overall (typical priming effect), ISI 67 @ frontal (typical priming effect), ISI 317 @ frontal (typical priming effect), ISI 67 @ central (typical priming effect), ISI 317 @ central (typical priming effect), and ISI 317 @ right frontal (typical priming effect)
+- uncorrected p-values: sig diffs btw priming conditions at all of the above and at ISI 317 @ midline (typical priming effect), ISI 317 @ right (typical priming effect), ISI 67 @ occipital (unprimed more attenuated than primed--opposite of typical priming effect), ISI 317 @ left frontal (typical priming effect), ISI 317 @ midline frontal (typical priming effect), ISI 67 @ midline central (typical priming effect), ISI 317 @ midline central (typical priming effect), ISI 67 @ right frontal (typical priming effect), ISI 67 @ right central (typical priming effect), and ISI 317 @ right central (typical priming effect)
+```{r}
+tlvispic_data$Priming <- contr_code_anova(tlvispic_data$Priming)
+tlvispic_data$ISI <- contr_code_anova(tlvispic_data$ISI)
+tlvispic_data$Region <- contr_code_anova(tlvispic_data$Region)
+tlvispic_data$Hemisphere <- contr_code_anova(tlvispic_data$Hemisphere)
+
+TLvispicm4 <- lmer(Mean.Amp ~ Priming*ISI*Region*Hemisphere + (1+Priming*ISI|Participant.ID), data=tlvispic_data,REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tidy(TLvispicm4)%>%
+  mutate(signif = stars.pval(p.value))
+
+anova(TLvispicm4)
+
+emm1 <- emmeans(TLvispicm4, pairwise ~ Priming | Region,adjust = "none")
+emm1
+
+TLvispicemm1 <- emmeans(TLvispicm4, ~ Priming * ISI)
+# Define the contrasts of interest
+contrast_spec <- list(
+  "unprimed 67 vs primed 67" = c(-1, 1, 0, 0),
+  "unprimed 317 vs primed 317" = c(0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLvispicemm1, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlvispiccontrast_df1 <- as.data.frame(summary(contrast_results))
+tlvispiccontrast_df1$p_value_stars <- cut(tlvispiccontrast_df1$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLvispicemm2 <- emmeans(TLvispicm4, ~ Priming*ISI*Hemisphere)
+# Define the contrasts of interest for each level of hemisphere
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ left" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ midline" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ midline" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ right" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLvispicemm2, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlvispiccontrast_df2 <- as.data.frame(summary(contrast_results))
+tlvispiccontrast_df2$p_value_stars <- cut(tlvispiccontrast_df2$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+TLvispicemm3 <- emmeans(TLvispicm4, ~ Priming*ISI*Region)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  "unprimed 67 vs primed 67 @ frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0),
+  "unprimed 317 vs primed 317 @ occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLvispicemm3, contrast_spec)
+contrast_results
+
+# Convert to a data frame and add significance stars
+tlvispiccontrast_df3 <- as.data.frame(summary(contrast_results))
+tlvispiccontrast_df3$p_value_stars <- cut(tlvispiccontrast_df3$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+TLvispicemm4 <- emmeans(TLvispicm4, ~ Priming*ISI*Region*Hemisphere)
+# Define the contrasts of interest for each level of region
+contrast_spec <- list(
+  # frontal
+  "unprimed 67 vs primed 67 @ left frontal" = c(-1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left frontal" = c(0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left central" = c(0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left central" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 317 vs primed 317 @ left parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  "unprimed 67 vs primed 67 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+ "unprimed 317 vs primed 317 @ left occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+
+    # midline
+    "unprimed 67 vs primed 67 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ midline occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+ 
+    # right
+    "unprimed 67 vs primed 67 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right frontal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right central" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0,  0),
+  "unprimed 317 vs primed 317 @ right parietal" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0,  0),
+  "unprimed 67 vs primed 67 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,  0),
+  "unprimed 317 vs primed 317 @ right occipital" = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1))
+
+# Get the contrast results
+contrast_results <- contrast(TLvispicemm4, contrast_spec)
+
+# Convert to a data frame and add significance stars
+tlvispiccontrast_df4 <- as.data.frame(summary(contrast_results))
+tlvispiccontrast_df4$p_value_stars <- cut(tlvispiccontrast_df4$p.value,
+                                 breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                                 labels = c("***", "**", "*", ""))
+
+
+# Bind the data frames together
+tlvispiccombined_df <- bind_rows(tlvispiccontrast_df1, tlvispiccontrast_df2,tlvispiccontrast_df3,tlvispiccontrast_df4)
+```

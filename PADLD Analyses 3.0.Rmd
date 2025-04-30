@@ -1,0 +1,1526 @@
+---
+title: "PADLD Analyses 3.0"
+author: "Ashlie"
+date: "2024-08-08"
+output: html_document
+---
+
+```{r setup}
+
+# Libraries
+pacman::p_load(knitr, # rendering of .Rmd file
+               lme4, # model specification/estimation
+               afex, # anova and deriving p-values via LRTs from lmer
+               broom.mixed, # extracting data from model fits
+               faux, # generate correlated values
+               tidyverse, # data wrangling and visualization 
+               ggridges, # visualization
+               viridis, # color schemes for visualization
+               kableExtra, # helps with knitting the .Rmd file
+               cowplot, # visualization tool to include multiple plots
+               ggrain, # visualization tool for raincloud plots
+               dplyr, # data manipulation tools
+               here, # controlling directories/reproducibility
+               tidyr, # formatting package
+               readr, # data importation
+               Hmisc, # visualization
+               emmeans, # estimation of marginal means and contrasts
+               sjstats, # estimation of marginal means and contrasts
+               lmerTest, # deriving p-values from lmer
+               MuMIn, # ?
+               sjPlot, # APA formatting of numerical output
+               car, # data wrangling and visualization,
+               magrittr, # to use %>%
+               ggpubr, # ? (Rose had it in her script)
+               broom, # ? (Rose had it in her script)
+               Matrix, # model specification/estimation,
+               multcomp, # multiple comparison adjustments
+               forcats, # organizing visualizations
+               gtools, # data manipulation/wrangling
+               fuzzySim, # FDR correction,
+               ez, # anova
+               apaTables, # visualization of anova output
+               #renv # package versioning/reproducibility
+               )
+
+# Global theme set
+set.seed(1234) # set random seed for reproducibility
+
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE)
+
+#theme_set(theme_bw(base_size = 13) + theme(text = element_text(size=13), 
+                             #axis.title=element_text(size=12),
+                             #strip.text = element_text(margin=margin(2,0,2,0)), 
+                             #panel.grid = element_blank()))
+
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE, fig.width=10, fig.height=8, fig.fullwidth=TRUE)
+
+plot_theme <- 
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 18), 
+        axis.text.x = element_text(size = 13), 
+        axis.title.x = element_text(size = 13), 
+        axis.text.y = element_text(size = 12), 
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", linewidth = 1.5, linetype="solid"))
+
+options(scipen=999)
+```
+
+# Demographic and Behavioral Assessment Data
+## Data Manipulations
+```{r}
+# Load data (2 data frames)
+demobehav_data <- read.csv(here("PADLD Data", "Participant Information","Participant Information & Scores v080824.csv"),stringsAsFactors=TRUE) # demographic data and behavioral assessment measures
+ar_data <- read.csv(here("PADLD Data", "Analysis Data","AR Data.csv"),stringsAsFactors=TRUE) #artifact rejection data
+
+# Format data
+demobehav_data %<>%
+  mutate(Group = factor(Group),
+         celf5 = as.numeric(CELF.5.Core.Language.Score),
+         celf5.z.c = as.numeric(scale(celf5, scale = TRUE, center = TRUE)),
+         age = as.numeric(Average.Age),
+         age.z.c = as.numeric(scale(age, scale = TRUE, center = TRUE)),
+         nwrppc = as.numeric(NWR.PPC),
+         nwrppc.arc = asin(sqrt(as.numeric(NWR.PPC)/100)),
+         nwrppc.arc.z.c = as.numeric(scale(nwrppc.arc, scale = TRUE, center = TRUE)),
+         nwrpcc.arc = asin(sqrt(as.numeric(NWR.PCC)/100)),
+         nwrpcc.arc.z.c = as.numeric(scale(nwrpcc.arc, scale = TRUE, center = TRUE)),
+         tills = as.numeric(TILLS.VA.Standard.Score),
+         tills.z.c = as.numeric(scale(tills, scale = TRUE, center = TRUE)),
+         toni= as.numeric(TONI.Deviation.Quotient),
+         toni.z.c = as.numeric(scale(toni, scale = TRUE, center = TRUE)),
+         wrmt = as.numeric(WRMT.LWI.Standard.Score),
+         wrmt.z.c = as.numeric(scale(wrmt, scale = TRUE, center = TRUE)),
+         flanker = as.numeric(Flanker.Standard.Score),
+         flanker.z.c = as.numeric(scale(flanker, scale = TRUE, center = TRUE)),
+         gender = factor(Gender),
+         gender.c = as.numeric(Gender) - 1.5,
+         Detailed.Language.Status = factor(Detailed.Language.Status),
+         Language.Status = factor(Language.Status,levels=c("English monolingual","English primary")),
+         langstat.c = as.numeric(Language.Status) - 1.5,
+         Bilingual.Type = factor(Bilingual.Type),
+         handedness = factor(Handedness),
+         hand.c = as.numeric(handedness) - 1.5,
+         pvt.word = factor(PVT.word,levels=c("50","67","83","100","> 117")),
+         pvt.pic = factor(PVT.pic,levels=c("50","67","83","100","> 117")),
+         pvt.word.z.c = as.numeric(scale(PVT.word.numeric, scale = TRUE, center = TRUE)),
+         pvt.pic.z.c = as.numeric(scale(PVT.pic.numeric, scale = TRUE, center = TRUE)),
+         celf5.z = as.numeric(scale(celf5, scale = TRUE)),
+         age.z = as.numeric(scale(age, scale = TRUE)),
+         nwrppc.arc.z = as.numeric(scale(nwrppc.arc, scale = TRUE)),
+         nwrpcc.arc.z = as.numeric(scale(nwrpcc.arc, scale = TRUE)),
+         tills.z = as.numeric(scale(tills, scale = TRUE)),
+         toni.z = as.numeric(scale(toni, scale = TRUE)),
+         wrmt.z = as.numeric(scale(wrmt, scale = TRUE)),
+         flanker.z = as.numeric(scale(flanker, scale = TRUE)),
+         pvt.word.z = as.numeric(scale(PVT.word.numeric, scale = TRUE)),
+         pvt.pic.z = as.numeric(scale(PVT.pic.numeric, scale = TRUE)),
+         total.components.removed = as.numeric(total.components.removed),
+         total.chans.interp = as.numeric(total.chans.interp))
+str(demobehav_data)
+
+# Format data
+ar_data %<>%
+  mutate(Group = factor(Group),
+         totalperrej = as.numeric(totalperrej),
+         Condition = factor(Condition))
+
+# Create some data subsets
+demobehav_data <- subset(demobehav_data, Exclude. != "Yes")
+
+# Notes:
+# Group = DLD vs. TL; default reference level = DLD
+# For gender, female = -0.5 (after centering), male = 0.5 (after centering)
+# Detailed Language Status = language status + bilingual type (see below); default reference level= English monolingual
+# Language Status = English monolingual vs. English primary; default reference level (set above) \ = English monolingual
+# For language status, English monolingual = -0.5 (after centering), English primary/bilingual = 0.5 (after centering)
+# Bilingual Type = sequential vs. simultaneous and the languages spoken; default reference level = NA? sequential bilingual (English-French)?
+# For handedness, L = -0.5 (after centering), R = 0.5 (after centering)
+# PVT = prime visibility threshold (shortest prime duration at which participant identified > 50% of animal primes presented at that duration); 50 vs. 67 vs. 83 vs. 100 vs. 117 vs. > 117; default reference level (set above) = 50
+# PVT Numeric = > 117 is replaced with 150 to make the variable closer to continuous rather than catergorical
+```
+
+## Descriptives
+```{r}
+# CELF-5 CLS
+demobehav_data_celf5 <- group_by(demobehav_data, Group)
+summarise(demobehav_data_celf5, # summarize operation by group
+  mean = mean(celf5),
+  std = sd(celf5)
+    )
+
+# age
+demobehav_data_age <- group_by(demobehav_data, Group)
+summarise(demobehav_data_age, # summarize operation by group
+  mean = mean(age),
+  std = sd(age)
+    )
+
+# NWR (PPC)
+demobehav_data_nwrppc <- group_by(demobehav_data, Group)
+summarise(demobehav_data_nwrppc, # summarize operation by group
+  mean = mean(nwrppc),
+  std = sd(nwrppc)
+    )
+
+# TILLS
+demobehav_data_tills <- group_by(demobehav_data, Group)
+summarise(demobehav_data_tills, # summarize operation by group
+  mean = mean(tills),
+  std = sd(tills)
+    )
+
+# TONI
+demobehav_data_toni <- group_by(demobehav_data, Group)
+summarise(demobehav_data_toni, # summarize operation by group
+  mean = mean(toni),
+  std = sd(toni)
+    )
+
+# WRMT
+demobehav_data_wrmt <- group_by(demobehav_data, Group)
+summarise(demobehav_data_wrmt, # summarize operation by group
+  mean = mean(wrmt),
+  std = sd(wrmt)
+    )
+
+# Flanker
+demobehav_data_flanker <- group_by(demobehav_data, Group)
+summarise(demobehav_data_flanker, # summarize operation by group
+  mean = mean(flanker),
+  std = sd(flanker)
+    )
+
+# gender
+demobehav_data_gender <- group_by(demobehav_data, Group,gender)
+demobehav_data_gender %>%
+  tally()
+
+# language status
+demobehav_data_langstat <- group_by(demobehav_data, Group,Language.Status)
+demobehav_data_langstat %>%
+  tally()
+
+# handedness
+demobehav_data_handedness <- group_by(demobehav_data, Group,handedness)
+demobehav_data_handedness %>%
+  tally()
+
+# PVT word
+demobehav_data_pvt.word <- group_by(demobehav_data, Group,pvt.word)
+demobehav_data_pvt.word %>%
+  tally()
+
+# PVT word
+demobehav_data_pvt.pic <- group_by(demobehav_data, Group,pvt.pic)
+demobehav_data_pvt.pic %>%
+  tally()
+```
+
+## Analyses
+```{r}
+# CELF-5 CLS
+demobehav_celf5 <- t.test(celf5.z ~ Group, data = demobehav_data)
+demobehav_celf5
+
+# age
+demobehav_age <- t.test(age ~ Group, data = demobehav_data)
+demobehav_age
+
+# NWR (PPC)
+demobehav_nwrppc <- t.test(nwrppc.arc.z ~ Group,demobehav_data)
+demobehav_nwrppc
+
+# TILLS
+demobehav_tills <- t.test(tills.z ~ Group,demobehav_data)
+demobehav_tills
+
+# TONI
+demobehav_toni <- t.test(toni.z ~ Group,demobehav_data)
+demobehav_toni
+
+# WRMT
+demobehav_wrmt <- t.test(wrmt.z  ~ Group,demobehav_data)
+demobehav_wrmt
+
+# Flanker
+demobehav_flanker <- t.test(flanker.z  ~ Group,demobehav_data)
+demobehav_flanker
+
+# PVT Word
+demobehav_pvtword <- t.test(pvt.word.z  ~ Group,demobehav_data)
+demobehav_pvtword
+
+# PVT Pic
+demobehav_pvtpic <- t.test(pvt.pic.z  ~ Group,demobehav_data)
+demobehav_pvtword
+
+# components removed
+demobehav_comprem <- t.test(total.components.removed  ~ Group,demobehav_data)
+demobehav_comprem
+
+# channels interpolated
+demobehav_chaninterp <- t.test(total.chans.interp  ~ Group,demobehav_data)
+demobehav_chaninterp
+
+# epochs rejected
+ar_data_model <- lmer(totalperrej ~ 1 + Group*Condition + (1|Participant.ID),ar_data)
+tab_model(ar_data_model, show.se = TRUE, show.ci = FALSE)
+
+emm <- emmeans(ar_data_model, pairwise ~ Condition | Group, adjust = "none")
+emm
+tidy(pairs(emm, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+
+```
+
+# Behavioral Response Data
+## Data Manipulations
+```{r}
+# Load data
+behavresp_data <- read.csv(here("PADLD Data", "Analysis Data","Behavioral Response Data.csv"), stringsAsFactors=TRUE) # behavioral response data
+
+# Format data
+behavresp_data %<>%
+  mutate(Percent.ID = as.numeric(Percent.ID),
+         perid.arc = asin(sqrt(as.numeric(Percent.ID)/100)),
+         Participant.ID = factor(Participant.ID),
+         Stimulus = factor(Stimulus),
+         Prime.Visibility = factor (Prime.Visibility),
+         Experimental.Condition = factor (Experimental.Condition),
+         ISI = factor(ISI),
+         Group = factor(Group))
+str(behavresp_data)
+
+# Create some subsets
+masked_behavresp_data <- subset(behavresp_data,Prime.Visibility == "Mask")
+```
+
+## Descriptives
+```{r}
+behavresp_data_grouped1 <- group_by(behavresp_data, Experimental.Condition, Group, Prime.Visibility, Stimulus, ISI)
+summarise(behavresp_data_grouped1, # summarize operation by group
+  mean = mean(Percent.ID),
+  std = sd(Percent.ID)
+    )
+
+behavresp_data_grouped2 <- group_by(behavresp_data, Experimental.Condition, Group, Prime.Visibility, Stimulus)
+summarise(behavresp_data_grouped2, # summarize operation by group
+  mean = mean(Percent.ID),
+  std = sd(Percent.ID)
+    )
+
+behavresp_data_grouped3 <- group_by(behavresp_data, Experimental.Condition, Prime.Visibility, Stimulus)
+summarise(behavresp_data_grouped3, # summarize operation by group
+  mean = mean(Percent.ID),
+  std = sd(Percent.ID)
+    )
+
+```
+
+
+## Analyses
+```{r}
+contrasts(masked_behavresp_data$Group)<-contr.sum(levels(masked_behavresp_data$Group))/2
+contrasts(masked_behavresp_data$Stimulus)<-contr.sum(levels(masked_behavresp_data$Stimulus))/2
+contrasts(masked_behavresp_data$Experimental.Condition)<-contr.sum(levels(masked_behavresp_data$Experimental.Condition))/2
+contrasts(masked_behavresp_data$ISI)<-contr.sum(levels(masked_behavresp_data$ISI))/2
+
+masked_behavresp_model <- lmer(perid.arc ~ 1 + Group*Stimulus*Experimental.Condition*ISI + (1|Participant.ID), masked_behavresp_data) 
+tab_model(masked_behavresp_model)
+
+masked_behavresp_emm1 <- emmeans(masked_behavresp_model, pairwise ~ Group | Stimulus*Experimental.Condition, adjust = "none")
+masked_behavresp_emm1
+tidy(pairs(masked_behavresp_emm1, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+
+masked_behavresp_emm4 <- emmeans(masked_behavresp_model, pairwise ~ Group | Stimulus*Experimental.Condition*ISI, adjust = "none")
+masked_behavresp_emm4
+tidy(pairs(masked_behavresp_emm4, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+
+
+masked_behavresp_emm2 <- emmeans(masked_behavresp_model, pairwise ~  Stimulus | Experimental.Condition*Group, adjust = "none")
+masked_behavresp_emm2
+tidy(pairs(masked_behavresp_emm2, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+
+
+masked_behavresp_emm3 <- emmeans(masked_behavresp_model, pairwise ~  Stimulus | Experimental.Condition*ISI*Group, adjust = "none")
+masked_behavresp_emm3
+tidy(pairs(masked_behavresp_emm3, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+
+
+```
+
+# Few N400 Channels Data (to examine overall effects)
+## Data Manipulation
+```{r}
+# Load data
+fewn400chans_data <- read.csv(here("PADLD Data", "Analysis Data","All PADLD Critical Target Mean Amps (50ms pre post bl).csv"),stringsAsFactors=TRUE) # mean amplitudes from 12 electrodes used to measure the N400 at 300 to 500ms post-target onset for all critical targets (with a +/- 50 ms baseline)
+
+# Data from electrodes traditionally used to measure N400 
+fewn400chans_data %<>%
+  mutate(Mean.Amp = as.numeric(Mean.Amp),
+         Participant.ID = factor(Participant.ID),
+         Channel = factor(Channel),
+         Region = factor(Region, levels=c("frontal","central","parietal","occipital")),
+         Hemisphere = factor(Hemisphere, levels=c("left","midline","right")),
+         Priming=factor(Priming, levels=c("unprimed","primed")),
+         Priming.c = as.numeric(Priming) - 1.5,
+         ISI = factor(ISI,levels=c("67","317")),
+         ISI.c = as.numeric(ISI) - 1.5,
+         Experimental.Condition = factor(Experimental.Condition),
+         Experimental.Condition.c = as.numeric(Experimental.Condition) - 1.5,
+         Stimulus.Type = factor(Stimulus.Type),
+         Prime.Visibility = factor (Prime.Visibility),
+         Prime.Visibility.c = as.numeric(Prime.Visibility) - 1.5,
+         Trial.Type = factor(Trial.Type),
+         Group = factor(Group, levels=c("TL","DLD")),
+         Group.c = as.numeric(Group) - 1.5)
+str(fewn400chans_data)
+
+# Create some data subsets
+pic_fewn400chans_data <- subset(fewn400chans_data,Experimental.Condition == "picture")
+word_fewn400chans_data <- subset(fewn400chans_data,Experimental.Condition == "word")
+
+# Notes:
+# Region = anteriority/posteriority; default reference level (set above) = frontal
+# Hemisphere = laterality; default reference level (set above) = left
+# Priming = primed vs. unprimed; default reference level (set above) = unprimed
+# ISI = 67 vs. 317; default reference level (set above) = 67
+# Experimental Condition = picture vs. word; default reference level = picture
+# Stimulus Type = prime vs. target; default reference level = prime (when present)
+# Prime Visibility = masked vs. visible; default reference level = masked
+# Trial Type = critical vs. probe; default reference level = critical
+# Group = DLD vs. TL; default reference level = DLD
+```
+
+## Descriptives
+```{r}
+# N400 mean amplitudes by group, priming condition, experimental condition, and prime visibility (collapsed across region and hemisphere)
+fewn400chans_data_grouped1 <- group_by(fewn400chans_data, Experimental.Condition, Prime.Visibility, ISI, Priming)
+summarise(fewn400chans_data_grouped1, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+fewn400chans_data_grouped2 <- group_by(fewn400chans_data, Experimental.Condition, Prime.Visibility)
+summarise(fewn400chans_data_grouped2, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+fewn400chans_data_grouped3 <- group_by(fewn400chans_data, Experimental.Condition, Priming)
+summarise(fewn400chans_data_grouped3, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+fewn400chans_data_grouped4 <- group_by(fewn400chans_data, Experimental.Condition, ISI)
+summarise(fewn400chans_data_grouped4, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+fewn400chans_data_grouped5 <- group_by(fewn400chans_data, Experimental.Condition, Prime.Visibility, ISI)
+summarise(fewn400chans_data_grouped5, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+```
+
+## Visualizations
+```{r}
+
+##### SINGLE FACTOR VISUALIZATIONS #####
+
+# N400 mean amplitude by (collapsed across experimental condition, group, prime visibility, priming condition, region, and hemisphere)
+hist(fewn400chans_data$Mean.Amp)
+boxplot(fewn400chans_data$Mean.Amp)
+
+# N400 mean amplitude by experimental condition (collapsed across group, prime visibility, priming condition, region, and hemisphere)
+plot(Mean.Amp ~ Experimental.Condition, data = fewn400chans_data)
+
+# N400 mean amplitude by group (collapsed across experimental condition, prime visibility, priming condition, region, and hemisphere)
+plot(Mean.Amp ~ Group, data = fewn400chans_data)
+
+
+#### GROUP x PRIMING ####
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+
+#### GROUP x PRIMING x ISI ####
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for masked picture data
+maskedpic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Picture Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for masked word data
+maskedword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Word Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for visible picture data
+vispic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Picture Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for visible picture data
+visword_data <- subset(wordcrittarg_data, Prime.Visibility == "visible")
+visword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Word Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+
+#### GROUP x PRIMING x REGION ####
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for masked picture data
+maskedpic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Picture Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for masked word data
+maskedword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Word Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for visible picture data
+vispic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Picture Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ ffacet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for visible picture data
+visword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Word Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+#### GROUP x PRIMING x ISI x HEMISPHERE ####
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+ facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+ facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+ facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+
+#### GROUP x PRIMING x ISI x REGION ####
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+#### GROUP x PRIMING x ISI x HEMISPHERE x REGION ####
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+
+
+maskedword_data <- subset(wordcrittarg_data, Prime.Visibility == "masked")
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=interaction(ISI, Group),  color=Group, shape=ISI)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") #+
+  #facet_wrap(~Group)
+
+
+visword_data <- subset(wordcrittarg_data, Prime.Visibility == "visible")
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp,  group=interaction(ISI, Group), color=Group, shape=ISI)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") #+
+  #facet_wrap(~Group)
+
+#############################
+word_fewn400chans_data %>%
+  ggplot(aes(x=ISI, y=Mean.Amp, group=Prime.Visibility, color=Prime.Visibility)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("ISI")
+
+pic_fewn400chans_data %>%
+  ggplot(aes(x=ISI, y=Mean.Amp, group=Prime.Visibility, color=Prime.Visibility)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("ISI")
+
+```
+
+## Analyses
+#### Word Data
+Significant predictors: 
+  - priming (p < .001)
+  - ISI (p < .001)
+  - prime visibility x ISI (p < .001) -> licenses separate analyses of data in each of the 4 different visibility x ISI permutations
+```{r}
+# word_omnibus_red<- lmer(Mean.Amp ~ 1 + Prime.Visibility * Priming * ISI + (1|Participant.ID) + (1|Channel),word_fewn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# word_omnibus_aug <- lmer(Mean.Amp ~ 1 + Prime.Visibility * Priming * ISI + (1+Prime.Visibility*Priming*ISI|Participant.ID) + (1+Prime.Visibility|Channel),word_fewn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# #summary(rePCA(word_omnibus_aug))
+# 
+# anova(word_omnibus_aug1,word_omnibus_aug)
+
+contrasts(word_fewn400chans_data$Prime.Visibility)<-contr.sum(levels(word_fewn400chans_data$Prime.Visibility))/2
+contrasts(word_fewn400chans_data$Priming)<-contr.sum(levels(word_fewn400chans_data$Priming))/2
+contrasts(word_fewn400chans_data$ISI)<-contr.sum(levels(word_fewn400chans_data$ISI))/2
+word_omnibus<- lmer(Mean.Amp ~ 1 + Prime.Visibility * Priming * ISI + (1|Participant.ID) + (1|Channel),word_fewn400chans_data, REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(word_omnibus, show.se = TRUE,show.ci = FALSE)
+```
+
+##### Picture Data
+Significant predictors:
+  - prime visibility (p < .001)
+  - ISI (p < .001)
+  - prime visibility x ISI (p < .001) -> licenses separate analyses of data in each of the 4 different visibility x ISI permutations
+```{r}
+# pic_omnibus_red <- lmer(Mean.Amp ~ 1 + Prime.Visibility * Priming * ISI + (1|Participant.ID) + (1|Channel),pic_fewn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# pic_omnibus_aug <- lmer(Mean.Amp ~ 1 + Prime.Visibility * Priming * ISI + (1+Prime.Visibility* Priming* ISI|Participant.ID) + (1+ISI|Channel),pic_fewn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# summary(rePCA(pic_omnibus_aug))
+# 
+# anova(pic_omnibus_red,pic_omnibus_aug)
+
+contrasts(pic_fewn400chans_data$Prime.Visibility)<-contr.sum(levels(pic_fewn400chans_data$Prime.Visibility))/2
+contrasts(pic_fewn400chans_data$Priming)<-contr.sum(levels(pic_fewn400chans_data$Priming))/2
+contrasts(pic_fewn400chans_data$ISI)<-contr.sum(levels(pic_fewn400chans_data$ISI))/2
+pic_omnibus <- lmer(Mean.Amp ~ 1 + Prime.Visibility * Priming * ISI + (1|Participant.ID) + (1|Channel),pic_fewn400chans_data, REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(pic_omnibus, show.se = TRUE,show.ci = FALSE)
+```
+
+
+# Many N400 Channels Data (to examine priming x ISI x group effects at each prime visibility)
+## Data Manipulations
+```{r}
+# Data from many electrodes to measure N400 more comprehensively
+# Load data
+manyn400chans_data <- read.csv(here("PADLD Data", "Analysis Data","All PADLD Critical Target Mean Amps (50ms pre post bl many electrodes).csv"),stringsAsFactors=TRUE) # mean amplitudes from 30 electrodes at 300 to 500ms post-target onset for all critical targets (with a +/- 50 ms baseline)
+
+# Format data
+manyn400chans_data %<>%
+  mutate(Mean.Amp = as.numeric(Mean.Amp),
+         Participant.ID = factor(Participant.ID),
+         Channel = factor(Channel),
+         Priming=factor(Priming, levels=c("unprimed","primed")),
+         ISI = factor(ISI,levels=c("67","317")),
+         Experimental.Condition = factor(Experimental.Condition),
+         Stimulus.Type = factor(Stimulus.Type),
+         Prime.Visibility = factor (Prime.Visibility),
+         Trial.Type = factor(Trial.Type),
+         Group = factor(Group,levels=c("TL","DLD")))
+manyn400chans_data <- subset(manyn400chans_data, Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+#manyn400chans_data <- subset(manyn400chans_data, Participant.ID == '112423-AD-PADLD' | Participant.ID == '041524-JH-PADLD' | Participant.ID == '122923-AS-PADLD' | Participant.ID == '013024-TR-PADLD' | Participant.ID == '032424-JV-PADLD' | Participant.ID == '042524-DH-PADLD' | Participant.ID == '040824-LH-PADLD' | Participant.ID == '010224-BS-PADLD' | Participant.ID == '040924-EK-PADLD' | Participant.ID == '032824-SG-PADLD' | Participant.ID == '101923-DV-PADLD' | Participant.ID == '050624-AF-PADLD' | Participant.ID == '032824-JG-PADLD' | Participant.ID == '013024-LK-PADLD' | Participant.ID == '110123-CB-PADLD' | Participant.ID == '122923-JM-PADLD' | Participant.ID == '040124-CP-PADLD' | Participant.ID == '050924-EL-PADLD')
+str(manyn400chans_data )
+
+# Create some data subsets
+pic_masked_manyn400chans_data <- subset(manyn400chans_data,Experimental.Condition == "picture" & Prime.Visibility == "masked" & !grepl("^P", Channel) & Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+word_masked_manyn400chans_data <- subset(manyn400chans_data,Experimental.Condition == "word" & Prime.Visibility == "masked" &  !grepl("^FC", Channel) & Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+pic_vis_manyn400chans_data <- subset(manyn400chans_data,Experimental.Condition == "picture" & Prime.Visibility == "visible" & !grepl("^P", Channel) & Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+word_vis_manyn400chans_data <- subset(manyn400chans_data,Experimental.Condition == "word" & Prime.Visibility == "visible" &  !grepl("^FC", Channel)& Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+
+# Notes:
+# Priming = primed vs. unprimed; default reference level (set above) = unprimed
+# ISI = 67 vs. 317; default reference level (set above) = 67
+# Experimental Condition = picture vs. word; default reference level = picture
+# Stimulus Type = prime vs. target; default reference level = prime (when present)
+# Prime Visibility = masked vs. visible; default reference level = masked
+# Trial Type = critical vs. probe; default reference level = critical
+# Group = DLD vs. TL; default reference level = DLD
+```
+
+## Descriptives
+```{r}
+# N400 mean amplitudes by group, priming condition, experimental condition, and prime visibility (collapsed across region and hemisphere)
+manyn400chans_data_grouped1 <- group_by(manyn400chans_data, Experimental.Condition, Prime.Visibility, Group, ISI, Priming)
+summarise(manyn400chans_data_grouped1, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+manyn400chans_data_grouped1 <- group_by(manyn400chans_data, Experimental.Condition, Prime.Visibility, Group, Priming, ISI)
+summarise(manyn400chans_data_grouped1, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+
+manyn400chans_data_grouped3 <- group_by(manyn400chans_data, Experimental.Condition, Group, Priming)
+summarise(manyn400chans_data_grouped3, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+manyn400chans_data_grouped4 <- group_by(manyn400chans_data, Experimental.Condition, Group, ISI)
+summarise(manyn400chans_data_grouped4, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+manyn400chans_data_grouped5 <- group_by(manyn400chans_data, Experimental.Condition, Prime.Visibility, Group, ISI)
+summarise(manyn400chans_data_grouped5, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+```
+
+## Visualizations
+```{r}
+word_masked_manyn400chans_data %>%
+  ggplot(aes(x=ISI, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("ISI")
+
+pic_masked_manyn400chans_data %>%
+  ggplot(aes(x=ISI, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("ISI")
+
+
+```
+
+## Analyses
+### Word Data
+#### Masked Word Data
+Results:
+  - Priming (p < .001)
+  - ISI (p < .001)
+  - Priming x Group (p = .050)
+  - ISI x Group (p < .001)
+  - Priming x ISI x Group (p = .180 (ns))
+    - priming effects for TD kids at both ISIs (both ps < .001) but no priming effects for kids with DLD (both ps > .16)
+```{r}
+# word_masked_manychans_red <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),word_masked_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# word_masked_manychans_aug <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1+Priming*ISI|Participant.ID) + (1+ISI|Channel),word_masked_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# anova(word_masked_manychans_red,word_masked_manychans_aug)
+
+contrasts(word_masked_manyn400chans_data$Group)<-contr.sum(levels(word_masked_manyn400chans_data$Group))/2
+contrasts(word_masked_manyn400chans_data$Priming)<-contr.sum(levels(word_masked_manyn400chans_data$Priming))/2
+contrasts(word_masked_manyn400chans_data$ISI)<-contr.sum(levels(word_masked_manyn400chans_data$ISI))/2
+word_masked_manychans <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),word_masked_manyn400chans_data, REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(word_masked_manychans, show.se = TRUE,show.ci = FALSE)
+
+word_masked_emm <- emmeans(word_masked_manychans, pairwise ~ Priming | ISI*Group, adjust = "none")
+word_masked_emm
+tidy(pairs(word_masked_emm, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+```
+
+#### Visible Word Data
+Results:
+  - Priming (p < .001)
+  - ISI (p = .014)
+  - ISI x Group (p < .001)
+  - Priming x ISI x Group (p = .419 (ns))
+    - priming effects for TD kids and kids with DLD at both ISIs (all ps < .002)
+```{r}
+# word_vis_manychans_red <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),word_vis_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# word_vis_manychans_aug <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1+Priming*ISI|Participant.ID) + (1+Group|Channel),word_vis_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# anova(word_vis_manychans_red,word_vis_manychans_aug)
+
+contrasts(word_vis_manyn400chans_data$Group)<-contr.sum(levels(word_vis_manyn400chans_data$Group))/2
+contrasts(word_vis_manyn400chans_data$Priming)<-contr.sum(levels(word_vis_manyn400chans_data$Priming))/2
+contrasts(word_vis_manyn400chans_data$ISI)<-contr.sum(levels(word_vis_manyn400chans_data$ISI))/2
+word_vis_manychans <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),word_vis_manyn400chans_data, REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(word_vis_manychans, show.se = TRUE,show.ci = FALSE)
+
+word_vis_emm <- emmeans(word_vis_manychans, pairwise ~ Priming | ISI*Group, adjust = "none")
+word_vis_emm
+tidy(pairs(word_vis_emm, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+```
+
+### Picture Data
+#### Masked Picture Data
+Results:
+  - Priming (p < .001)
+  - ISI (p < .001)
+  - ISI x Group (p < .001)
+  - Priming x ISI x Group (p = .066 (ns))
+    - priming effects at both ISIs for TD kids (both ps < .001) and priming effects at the shorter ISI for kids with DLD (p = .003) (not the longer ISI though; p = 0.178)
+```{r}
+# pic_masked_manychans_red <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),pic_masked_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# pic_masked_manychans_aug <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1+Priming*ISI+Group|Participant.ID) + (1|Channel),pic_masked_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# anova(pic_masked_manychans_red,pic_masked_manychans_aug)
+
+contrasts(pic_masked_manyn400chans_data$Group)<-contr.sum(levels(pic_masked_manyn400chans_data$Group))/2
+contrasts(pic_masked_manyn400chans_data$Priming)<-contr.sum(levels(pic_masked_manyn400chans_data$Priming))/2
+contrasts(pic_masked_manyn400chans_data$ISI)<-contr.sum(levels(pic_masked_manyn400chans_data$ISI))/2
+pic_masked_manychans <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),pic_masked_manyn400chans_data, REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(pic_masked_manychans, show.se = TRUE,show.ci = FALSE)
+
+pic_masked_emm <- emmeans(pic_masked_manychans, pairwise ~ Priming | ISI*Group, adjust = "none")
+pic_masked_emm
+tidy(pairs(pic_masked_emm, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+
+```
+
+#### Visible Picture Data
+Results:
+  - Priming (p < .001)
+  - ISI (p < .001)
+  - ISI x Group (p < .001)
+  - Priming x ISI x Group (p = .528 (ns))
+    - priming effects for TD kids and kids with DLD at both ISIs (all ps < .001)
+```{r}
+# pic_vis_manychans_red <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),pic_vis_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# pic_vis_manychans_aug <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1+Priming*ISI|Participant.ID) + (1+Priming|Channel),pic_vis_manyn400chans_data, REML=FALSE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+# 
+# anova(pic_vis_manychans_red,pic_vis_manychans_aug)
+
+contrasts(pic_vis_manyn400chans_data$Group)<-contr.sum(levels(pic_vis_manyn400chans_data$Group))/2
+contrasts(pic_vis_manyn400chans_data$Priming)<-contr.sum(levels(pic_vis_manyn400chans_data$Priming))/2
+contrasts(pic_vis_manyn400chans_data$ISI)<-contr.sum(levels(pic_vis_manyn400chans_data$ISI))/2
+pic_vis_manychans <- lmer(Mean.Amp ~ 1 + Priming * ISI * Group + (1|Participant.ID) + (1|Channel),pic_vis_manyn400chans_data, REML=TRUE,control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(pic_vis_manychans, show.se = TRUE,show.ci = FALSE)
+
+pic_vis_emm <- emmeans(pic_vis_manychans, pairwise ~ Priming | ISI*Group, adjust = "none")
+pic_vis_emm
+tidy(pairs(pic_vis_emm, adjust="none"))%>%
+      mutate(signif = stars.pval(p.value), p.value = formatC(p.value, format = "f", digits = 4))
+```
+
+# Difference Score Data (to examine link btw the time course of ASA and semantic abilities)
+## Data Manipulations
+```{r}
+# Load data (2 data frames)
+diffscore_data <- read.csv(here("PADLD Data", "Analysis Data","PADLD Difference Score Data (many electrodes).csv"),stringsAsFactors=TRUE) # N400 priming effect difference scores (67 ms ISI diff wave - 317 ms ISI diff wave) from 30 individual electrodes
+clusterdiffscore_data <- read.csv(here("PADLD Data", "Analysis Data","PADLD Difference Score Data (cluster electrode).csv"),stringsAsFactors=TRUE) # N400 priming effect difference scores (67 ms ISI diff wave - 317 ms ISI diff wave) from the average of the 30 individual electrodes
+
+# Format data
+diffscore_data %<>%
+  mutate(PrimingxISI.Diff = as.numeric(PrimingxISI.Diff),
+         Participant.ID = factor(Participant.ID),
+         Channel = factor(Channel),
+         Prime.Visibility = factor(Prime.Visibility),
+         Experimental.Condition = factor(Experimental.Condition),
+         tills = as.numeric(TILLS),
+         tills.z = as.numeric(scale(tills, scale = TRUE)),
+         tills.c.z = as.numeric(scale(tills, scale = TRUE, center = TRUE)),
+         tills.c = as.numeric(scale(tills, scale = FALSE, center = TRUE)),
+         celf5 = as.numeric(CELF.5.Core.Language.Score),
+         celf5.z = as.numeric(scale(celf5, scale = TRUE)))
+str(diffscore_data)
+
+clusterdiffscore_data %<>%
+  mutate(PrimingxISI.Diff = as.numeric(PrimingxISI.Diff),
+         Participant.ID = factor(Participant.ID),
+         Prime.Visibility = factor(Prime.Visibility),
+         Experimental.Condition = factor(Experimental.Condition),
+         tills = as.numeric(TILLS),
+         tills.z = as.numeric(scale(tills, scale = TRUE)),
+         tills.c.z = as.numeric(scale(tills, scale = TRUE, center = TRUE)),
+         tills.c = as.numeric(scale(tills, scale = FALSE, center = TRUE)),
+         celf5 = as.numeric(CELF.5.Core.Language.Score),
+         celf5.z = as.numeric(scale(celf5, scale = TRUE)),
+         age = as.numeric(Average.Age),
+         age.z = as.numeric(scale(age, scale = TRUE)),
+         nwrppc.arc = asin(sqrt(as.numeric(NWR.PPC)/100)),
+         nwrppc.arc.z = as.numeric(scale(nwrppc.arc, scale = TRUE)),
+         nwrpcc.arc = asin(sqrt(as.numeric(NWR.PCC)/100)),
+         nwrpcc.arc.z = as.numeric(scale(nwrpcc.arc, scale = TRUE)),
+         toni= as.numeric(TONI.Deviation.Quotient),
+         toni.z = as.numeric(scale(toni, scale = TRUE)),
+         wrmt = as.numeric(WRMT.LWI.Standard.Score),
+         wrmt.z = as.numeric(scale(wrmt, scale = TRUE)),
+         flanker = as.numeric(Flanker.Standard.Score),
+         flanker.z = as.numeric(scale(flanker, scale = TRUE)),
+         pvt.z = as.numeric(scale(PVT.Numeric, scale = TRUE)))
+str(clusterdiffscore_data)
+
+# Create some data subsets
+#diffscore_data <- subset(diffscore_data, Participant.ID == '112423-AD-PADLD' | Participant.ID == '041524-JH-PADLD' | Participant.ID == '122923-AS-PADLD' | Participant.ID == '013024-TR-PADLD' | Participant.ID == '032424-JV-PADLD' | Participant.ID == '042524-DH-PADLD' | Participant.ID == '040824-LH-PADLD' | Participant.ID == '010224-BS-PADLD' | Participant.ID == '040924-EK-PADLD' | Participant.ID == '032824-SG-PADLD' | Participant.ID == '101923-DV-PADLD' | Participant.ID == '050624-AF-PADLD' | Participant.ID == '032824-JG-PADLD' | Participant.ID == '013024-LK-PADLD' | Participant.ID == '110123-CB-PADLD' | Participant.ID == '122923-JM-PADLD' | Participant.ID == '040124-CP-PADLD' | Participant.ID == '050924-EL-PADLD')
+#clusterdiffscore_data<- subset(clusterdiffscore_data, Participant.ID == '112423-AD-PADLD' | Participant.ID == '041524-JH-PADLD' | Participant.ID == '122923-AS-PADLD' | Participant.ID == '013024-TR-PADLD' | Participant.ID == '032424-JV-PADLD' | Participant.ID == '042524-DH-PADLD' | Participant.ID == '040824-LH-PADLD' | Participant.ID == '010224-BS-PADLD' | Participant.ID == '040924-EK-PADLD' | Participant.ID == '032824-SG-PADLD' | Participant.ID == '101923-DV-PADLD' | Participant.ID == '050624-AF-PADLD' | Participant.ID == '032824-JG-PADLD' | Participant.ID == '013024-LK-PADLD' | Participant.ID == '110123-CB-PADLD' | Participant.ID == '122923-JM-PADLD' | Participant.ID == '040124-CP-PADLD' | Participant.ID == '050924-EL-PADLD')
+
+masked_diffscores_data <- subset(diffscore_data, Prime.Visibility == "masked")
+vis_diffscores_data <- subset(diffscore_data, Prime.Visibility == "visible")
+
+pic_masked_diffscores_data <- subset(diffscore_data,Experimental.Condition == "picture" & Prime.Visibility == "masked" & !grepl("^P", Channel)& Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+word_masked_diffscores_data <- subset(diffscore_data,Experimental.Condition == "word" & Prime.Visibility == "masked" & !grepl("^FC", Channel)& Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+pic_vis_diffscores_data <- subset(diffscore_data,Experimental.Condition == "picture" & Prime.Visibility == "visible" & !grepl("^P", Channel)& Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+word_vis_diffscores_data <- subset(diffscore_data,Experimental.Condition == "word" & Prime.Visibility == "visible" & !grepl("^FC", Channel)& Channel != 'F1'&Channel !='F2'&Channel !='F3'&Channel !='F4'&Channel !='FZ'&Channel !='F6')
+
+masked_clusterdiffscores_data <- subset(clusterdiffscore_data, Prime.Visibility == "masked")
+vis_clusterdiffscores_data <- subset(clusterdiffscore_data, Prime.Visibility == "visible")
+
+pic_masked_clusterdiffscores_data <- subset(clusterdiffscore_data,Experimental.Condition == "picture" & Prime.Visibility == "masked")
+word_masked_clusterdiffscores_data <- subset(clusterdiffscore_data,Experimental.Condition == "word" & Prime.Visibility == "masked")
+pic_vis_clusterdiffscores_data <- subset(clusterdiffscore_data,Experimental.Condition == "picture" & Prime.Visibility == "visible")
+word_vis_clusterdiffscores_data <- subset(clusterdiffscore_data,Experimental.Condition == "word" & Prime.Visibility == "visible")
+
+# Notes:
+# Experimental Condition = picture vs. word; default reference level = picture
+# Prime Visibility = masked vs. visible; default reference level = masked
+```
+
+## Analyses
+### Masked Data
+Significant results:
+  - when using a cluster electrode, nothing - neither masked word nor masked picture ISI differences significantly predict or are correlated with TILLS VA scores (nor vice versa) 
+  - when using individual electrodes and difference scores as the DV and put all the data in one model, significant TILLS x experimental condition interaction
+      - as TILLS scores increase, priming difference increases for word data and decreases for picture data
+```{r}
+# Word and Picture
+
+# masked_diffscores <- lmer(tills.z ~ 1 + PrimingxISI.Diff*Experimental.Condition +(1|Participant.ID), diffscore_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # failed to converge
+
+masked_clusterdiffscores <- lm(tills.z ~ 1 + PrimingxISI.Diff*Experimental.Condition, masked_clusterdiffscores_data)
+tab_model(masked_clusterdiffscores)
+
+masked_diffscore <- lmer(PrimingxISI.Diff ~ 1 + tills.c.z*Experimental.Condition +(1|Participant.ID), masked_diffscores_data, REML = TRUE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(masked_diffscore, show.se = TRUE,show.ci = FALSE)
+
+masked_diffscores_data %>%
+  ggplot(aes(x=tills.c.z, y=PrimingxISI.Diff, group=Experimental.Condition, color=Experimental.Condition, shape=Experimental.Condition)) +
+  geom_point()+
+  # stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  # stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Difference Scores")+
+  ylab("Priming x ISI Difference Score") +
+  xlab("TILLS z-score")+
+  geom_smooth(method=lm)
+
+# Word
+#word_masked_diffscores <- lmer(tills.z ~ 1 + PrimingxISI.Diff +(1|Participant.ID), word_masked_diffscores_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # failed to converge
+
+word_masked_clusterdiffscores <- lm(tills.z ~ 1 + PrimingxISI.Diff, word_masked_clusterdiffscores_data)
+tab_model(word_masked_clusterdiffscores, show.se = TRUE,show.ci = FALSE)
+
+word_masked_clusterdiffscores.null <- lm(tills.z ~ 1, word_masked_clusterdiffscores_data)
+anova(word_masked_clusterdiffscores,word_masked_clusterdiffscores.null)
+
+word_masked_diffscores <- lmer(PrimingxISI.Diff ~ 1 + tills.z +(1|Participant.ID), word_masked_diffscores_data, REML = TRUE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) 
+tab_model(word_masked_diffscores)
+
+# Correlations
+word_masked_corr <- cor.test(word_masked_clusterdiffscores_data$PrimingxISI.Diff, word_masked_clusterdiffscores_data$tills.z, 
+                    method = "pearson")
+tidy(word_masked_corr)
+
+# Compute a correlation matrix of the data rounding to 2 decimal places
+library(ggcorrplot)
+word_masked_covar_corr_data <- subset(word_masked_clusterdiffscores_data, select = c('celf5.z', 'nwrppc.arc.z', 'nwrpcc.arc.z', 'tills.z', 'toni.z', 'wrmt.z', 'flanker.z', 'age.z','pvt.z','PrimingxISI.Diff'))
+word_masked_covar_corr <- round(cor(word_masked_covar_corr_data), 2)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(word_masked_covar_corr)
+
+ggcorrplot(
+  word_masked_covar_corr,
+  method = "circle",
+  p.mat = p.mat,
+  hc.order = TRUE,
+  type = "lower",
+  insig = "blank"
+)
+
+word_masked_covar_corr
+p.mat
+
+# Picture
+# pic_masked_diffscores_red <- lmer(tills.z ~ 1 + PrimingxISI.Diff +(1|Participant.ID), pic_masked_diffscores_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # failed to converge
+
+pic_masked_clusterdiffscores <- lm(tills.z ~ 1 + PrimingxISI.Diff, pic_masked_clusterdiffscores_data)
+tab_model(pic_masked_clusterdiffscores, show.se = TRUE,show.ci = FALSE)
+
+pic_masked_clusterdiffscores.null <- lm(tills.z ~ 1, pic_masked_clusterdiffscores_data)
+anova(pic_masked_clusterdiffscores,pic_masked_clusterdiffscores.null)
+
+pic_masked_diffscores <- lmer(PrimingxISI.Diff ~ 1 + tills.c.z +(1|Participant.ID), pic_masked_diffscores_data, REML = TRUE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(pic_masked_diffscores)
+
+# Correlations
+pic_masked_corr <- cor.test(pic_masked_clusterdiffscores_data$PrimingxISI.Diff, pic_masked_clusterdiffscores_data$tills.z, 
+                    method = "pearson")
+tidy(pic_masked_corr)
+
+# Compute a correlation matrix of the data rounding to 2 decimal places
+library(ggcorrplot)
+pic_masked_clusterdiffscores_data <- subset(pic_masked_clusterdiffscores_data, Participant.ID != "050724-AF-PADLD")
+pic_masked_covar_corr_data <- subset(pic_masked_clusterdiffscores_data, select = c('celf5.z', 'nwrppc.arc.z', 'nwrpcc.arc.z', 'tills.z', 'toni.z', 'wrmt.z', 'flanker.z', 'age.z','pvt.z','PrimingxISI.Diff'))
+pic_masked_covar_corr <- round(cor(pic_masked_covar_corr_data), 2)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(pic_masked_covar_corr)
+
+ggcorrplot(
+  pic_masked_covar_corr,
+  method = "circle",
+  p.mat = p.mat,
+  hc.order = TRUE,
+  type = "lower",
+  insig = "blank"
+)
+
+pic_masked_covar_corr
+p.mat
+
+pic_masked_clusterdiffscores_data %>%
+  ggplot(aes(x=celf5, y=PrimingxISI.Diff))+#, group=Experimental.Condition, color=Experimental.Condition, shape=Experimental.Condition)) +
+  geom_point()+
+  # stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  # stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Difference Scores")+
+  ylab("Priming x ISI Difference Score") +
+  xlab("CELF-5")+
+  geom_smooth(method=lm)
+
+```
+
+### Visible Data
+Significant results:
+  - when using a cluster electrode, nothing - neither visible word nor visible picture ISI differences significantly predict or are correlated with TILLS VA scores (nor vice versa)
+    - when using individual electrodes and difference scores as the DV and put all the data in one model, significant TILLS x experimental condition interaction
+      - as TILLS scores increase, priming difference increases for picture data and decreases for word data (reverse of masked data finding)
+```{r}
+# Word and Picture
+vis_diffscores <- lmer(tills.z ~ 1 + PrimingxISI.Diff*Experimental.Condition +(1|Participant.ID), diffscore_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # failed to converge
+
+vis_clusterdiffscores <- lm(tills.z ~ 1 + PrimingxISI.Diff*Experimental.Condition, vis_clusterdiffscores_data)
+tab_model(vis_clusterdiffscores)
+
+vis_diffscore <- lmer(PrimingxISI.Diff ~ 1 + tills.c.z*Experimental.Condition +(1|Participant.ID), vis_diffscores_data, REML = TRUE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6)))
+tab_model(vis_diffscore)
+
+vis_diffscores_data %>%
+  ggplot(aes(x=tills, y=PrimingxISI.Diff, group=Experimental.Condition, color=Experimental.Condition, shape=Experimental.Condition)) +
+  geom_point()+
+  # stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  # stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Difference Scores")+
+  ylab("Priming x ISI Difference Score") +
+  xlab("TILLS z-score")+
+  geom_smooth(method=lm)
+
+
+# Word
+word_vis_diffscores <- lmer(tills.z ~ 1 + PrimingxISI.Diff +(1|Participant.ID), word_vis_diffscores_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # failed to converge
+
+word_vis_clusterdiffscores <- lm(tills.z ~ 1 + PrimingxISI.Diff, word_vis_clusterdiffscores_data)
+tab_model(word_vis_clusterdiffscores)
+
+word_vis_diffscores <- lmer(PrimingxISI.Diff ~ 1 + tills.c.z +(1|Participant.ID), word_vis_diffscores_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) 
+tab_model(word_vis_diffscores)
+
+# Correlations
+word_vis_corr <- cor.test(word_vis_clusterdiffscores_data$PrimingxISI.Diff, word_vis_clusterdiffscores_data$tills.z, 
+                    method = "pearson")
+tidy(word_vis_corr)
+
+# Picture
+pic_vis_diffscores_red <- lmer(tills.z ~ 1 + PrimingxISI.Diff +(1|Participant.ID), pic_vis_diffscores_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) # failed to converge
+
+pic_vis_clusterdiffscores <- lm(tills.z ~ 1 + PrimingxISI.Diff, pic_vis_clusterdiffscores_data)
+tab_model(pic_vis_clusterdiffscores)
+
+pic_vis_diffscores <- lmer(PrimingxISI.Diff ~ 1 + tills.c.z +(1|Participant.ID), pic_vis_diffscores_data, REML = FALSE, control=lmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e6))) 
+tab_model(pic_vis_diffscores)
+
+# Correlations
+pic_vis_corr <- cor.test(pic_vis_clusterdiffscores_data$PrimingxISI.Diff, pic_vis_clusterdiffscores_data$tills.z, 
+                    method = "pearson")
+tidy(pic_vis_corr)
+```
+
+
+# Difference Waves Data (to examine covariates/indiviudal differences)
+## Data Manipulations
+```{r}
+# Load data (3 data frames)
+diffwaves_data <- read.csv(here("PADLD Data", "Analysis Data","All PADLD Critical Target Mean Amps (50ms pre post bl many electrodes diff waves).csv"), stringsAsFactors=TRUE) # mean amplitudes of unprimed - primed ERPs from 30 individual electrodes (including the traditional ones) at 300 to 500ms post-target onset for all critical targets (with a +/- 50 ms baseline)
+
+clusterdiffwaves_data <- read.csv(here("PADLD Data", "Analysis Data","PADLD Difference Waves Data (cluster electrode).csv"), stringsAsFactors=TRUE) # mean amplitudes of unprimed - primed ERPs from the average of the 30 individual electrodes
+
+covar_data <- read.csv(here("PADLD Data", "Participant Information","Participant Information & Scores v080824.csv"),stringsAsFactors=TRUE) # behavioral assessment measures
+
+# Format data
+diffwaves_data%<>%
+  mutate(Mean.Amp = as.numeric(Mean.Amp),
+         Participant.ID = factor(Participant.ID),
+         Channel = factor(Channel),
+         ISI = factor(ISI,levels=c("67","317")),
+         Experimental.Condition = factor(Experimental.Condition),
+         Prime.Visibility = factor (Prime.Visibility),
+         Group = factor(Group),
+         celf5 = as.numeric(CELF.5.Core.Language.Score),
+         celf5.z.c = as.numeric(scale(celf5, scale = TRUE, center = TRUE)),
+         age = as.numeric(Average.Age),
+         age.z.c = as.numeric(scale(age, scale = TRUE, center = TRUE)),
+         nwrppc.arc = asin(sqrt(as.numeric(NWR.PPC)/100)),
+         nwrppc.arc.z.c = as.numeric(scale(nwrppc.arc, scale = TRUE, center = TRUE)),
+         nwrpcc.arc = asin(sqrt(as.numeric(NWR.PCC)/100)),
+         nwrpcc.arc.z.c = as.numeric(scale(nwrpcc.arc, scale = TRUE, center = TRUE)),
+         tills = as.numeric(TILLS.VA.Standard.Score),
+         tills.z.c = as.numeric(scale(tills, scale = TRUE, center = TRUE)),
+         toni= as.numeric(TONI.Deviation.Quotient),
+         toni.z.c = as.numeric(scale(toni, scale = TRUE, center = TRUE)),
+         wrmt = as.numeric(WRMT.LWI.Standard.Score),
+         wrmt.z.c = as.numeric(scale(wrmt, scale = TRUE, center = TRUE)),
+         flanker = as.numeric(Flanker.Standard.Score),
+         flanker.z.c = as.numeric(scale(flanker, scale = TRUE, center = TRUE)),
+         gender.c = as.numeric(Gender) - 1.5,
+         Detailed.Language.Status = factor(Detailed.Language.Status),
+         Language.Status = factor(Language.Status,levels=c("English monolingual","English primary")),
+         langstat.c = as.numeric(Language.Status) - 1.5,
+         Bilingual.Type = factor(Bilingual.Type),
+         handedness = factor(Handedness),
+         hand.c = as.numeric(handedness) - 1.5,
+         pvt = factor(PVT,levels=c("50","67","83","100","> 117")),
+         pvt.z.c = as.numeric(scale(PVT.Numeric, scale = TRUE, center = TRUE)),
+         celf5.z = as.numeric(scale(celf5, scale = TRUE)),
+         age.z = as.numeric(scale(age, scale = TRUE)),
+         nwrppc.arc.z = as.numeric(scale(nwrppc.arc, scale = TRUE)),
+         nwrpcc.arc.z = as.numeric(scale(nwrpcc.arc, scale = TRUE)),
+         tills.z = as.numeric(scale(tills, scale = TRUE)),
+         toni.z = as.numeric(scale(toni, scale = TRUE)),
+         wrmt.z = as.numeric(scale(wrmt, scale = TRUE)),
+         flanker.z = as.numeric(scale(flanker, scale = TRUE)),
+         pvt.z = as.numeric(scale(PVT.Numeric, scale = TRUE)))
+str(diffwaves_data)
+
+clusterdiffwaves_data%<>%
+  mutate(Mean.Amp = as.numeric(Mean.Amp),
+         Participant.ID = factor(Participant.ID),
+         ISI = factor(ISI,levels=c("67","317")),
+         Experimental.Condition = factor(Experimental.Condition),
+         Prime.Visibility = factor (Prime.Visibility),
+         Group = factor(Group),
+         celf5 = as.numeric(CELF.5.Core.Language.Score),
+         celf5.z.c = as.numeric(scale(celf5, scale = TRUE, center = TRUE)),
+         age = as.numeric(Average.Age),
+         age.z.c = as.numeric(scale(age, scale = TRUE, center = TRUE)),
+         nwrppc.arc = asin(sqrt(as.numeric(NWR.PPC)/100)),
+         nwrppc.arc.z.c = as.numeric(scale(nwrppc.arc, scale = TRUE, center = TRUE)),
+         nwrpcc.arc = asin(sqrt(as.numeric(NWR.PCC)/100)),
+         nwrpcc.arc.z.c = as.numeric(scale(nwrpcc.arc, scale = TRUE, center = TRUE)),
+         tills = as.numeric(TILLS.VA.Standard.Score),
+         tills.z.c = as.numeric(scale(tills, scale = TRUE, center = TRUE)),
+         toni= as.numeric(TONI.Deviation.Quotient),
+         toni.z.c = as.numeric(scale(toni, scale = TRUE, center = TRUE)),
+         wrmt = as.numeric(WRMT.LWI.Standard.Score),
+         wrmt.z.c = as.numeric(scale(wrmt, scale = TRUE, center = TRUE)),
+         flanker = as.numeric(Flanker.Standard.Score),
+         flanker.z.c = as.numeric(scale(flanker, scale = TRUE, center = TRUE)),
+         gender.c = as.numeric(Gender) - 1.5,
+         Detailed.Language.Status = factor(Detailed.Language.Status),
+         Language.Status = factor(Language.Status,levels=c("English monolingual","English primary")),
+         langstat.c = as.numeric(Language.Status) - 1.5,
+         Bilingual.Type = factor(Bilingual.Type),
+         handedness = factor(Handedness),
+         hand.c = as.numeric(handedness) - 1.5,
+         pvt = factor(PVT,levels=c("50","67","83","100","> 117")),
+         pvt = factor(PVT,levels=c("50","67","83","100","> 117")),
+         pvt.z.c = as.numeric(scale(PVT.Numeric, scale = TRUE, center = TRUE)),
+         celf5.z = as.numeric(scale(celf5, scale = TRUE)),
+         age.z = as.numeric(scale(age, scale = TRUE)),
+         nwrppc.arc.z = as.numeric(scale(nwrppc.arc, scale = TRUE)),
+         nwrpcc.arc.z = as.numeric(scale(nwrpcc.arc, scale = TRUE)),
+         tills.z = as.numeric(scale(tills, scale = TRUE)),
+         toni.z = as.numeric(scale(toni, scale = TRUE)),
+         wrmt.z = as.numeric(scale(wrmt, scale = TRUE)),
+         flanker.z = as.numeric(scale(flanker, scale = TRUE)),
+         pvt.z = as.numeric(scale(PVT.Numeric, scale = TRUE)))
+str(clusterdiffwaves_data)
+
+# z-score values
+covar_data %<>%
+  mutate(celf5 = as.numeric(CELF.5.Core.Language.Score),
+         celf5.z = as.numeric(scale(celf5, scale = TRUE)),
+         age = as.numeric(Average.Age),
+         age.z = as.numeric(scale(age, scale = TRUE)),
+         nwrppc.arc = asin(sqrt(as.numeric(NWR.PPC)/100)),
+         nwrppc.arc.z = as.numeric(scale(nwrppc.arc, scale = TRUE)),
+         nwrpcc.arc = asin(sqrt(as.numeric(NWR.PCC)/100)),
+         nwrpcc.arc.z = as.numeric(scale(nwrpcc.arc, scale = TRUE)),
+         tills = as.numeric(TILLS.VA.Standard.Score),
+         tills.z = as.numeric(scale(tills, scale = TRUE)),
+         toni= as.numeric(TONI.Deviation.Quotient),
+         toni.z = as.numeric(scale(toni, scale = TRUE)),
+         wrmt = as.numeric(WRMT.LWI.Standard.Score),
+         wrmt.z = as.numeric(scale(wrmt, scale = TRUE)),
+         flanker = as.numeric(Flanker.Standard.Score),
+         flanker.z = as.numeric(scale(flanker, scale = TRUE)))
+str(covar_data)
+
+# Notes:
+# ISI = 67 vs. 317; default reference level (set above) = 67
+# Experimental Condition = picture vs. word; default reference level = picture
+# Prime Visibility = masked vs. visible; default reference level = masked
+# Group = DLD vs. TL; default reference level = DLD
+# For gender, female = -0.5 (after centering), male = 0.5 (after centering)
+# Detailed Language Status = language status + bilingual type (see below); default reference level= English monolingual
+# Language Status = English monolingual vs. English primary; default reference level (set above) \ = English monolingual
+# For language status, English monolingual = -0.5 (after centering), English primary/bilingual = 0.5 (after centering)
+# Bilingual Type = sequential vs. simultaneous and the languages spoken; default reference level = NA? sequential bilingual (English-French)?
+# For handedness, L = -0.5 (after centering), R = 0.5 (after centering)
+# PVT = prime visibility threshold (shortest prime duration at which participant identified > 50% of animal primes presented at that duration); 50 vs. 67 vs. 83 vs. 100 vs. 117 vs. > 117; default reference level (set above) = 50
+# PVT Numeric = > 117 is replaced with 150 to make the variable closer to continuous rather than catergorical
+```
+
+## Analyses
+### Correlations
+Results: 
+  - nothing is significantly or even strongly correlated except for NWR PPC and NWR PCC (to be expected since they are measures from the same test)
+```{r}
+# Compute a correlation matrix of the data rounding to 2 decimal places
+library(ggcorrplot)
+covar_corr_data <- subset(covar_data, select = c('celf5.z', 'nwrppc.arc.z', 'nwrpcc.arc.z', 'tills.z', 'toni.z', 'wrmt.z', 'flanker.z', 'age.z'))
+#covar_corr_data <- subset(covar_data, select = c('celf5', 'nwrppc.arc', 'nwrpcc.arc', 'tills', 'toni', 'wrmt', 'flanker', 'age'))
+corr <- round(cor(covar_corr_data), 2)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(covar_corr_data)
+
+ggcorrplot(
+  corr,
+  method = "circle",
+  p.mat = p.mat,
+  hc.order = TRUE,
+  type = "lower",
+  insig = "blank"
+)
+
+```
+
+### Word Data
+Significant results (when using non-clustered electrodes as DV, i.e., lmer):
+ - CELF-5 predicts priming effects for targets following visible primes and a 317-ms ISI (p = .035)
+Significant results (when using cluster electrode as DV, i.e., lm):
+  - nothing
+```{r}
+# Create some data subsets
+word_masked_67_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Masked" & ISI == "67")
+word_masked_317_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Masked" & ISI == "317")
+word_vis_67_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Visible" & ISI == "67")
+word_vis_317_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Visible" & ISI == "317")
+
+word_masked_67_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Masked" & ISI == "67")
+word_masked_317_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Masked" & ISI == "317")
+word_vis_67_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Visible" & ISI == "67")
+word_vis_317_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "word" & Prime.Visibility == "Visible" & ISI == "317")
+
+# Run some regressions
+word_masked_67_covartest <- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c + (1|Participant.ID) + (1|Channel), word_masked_67_diffwaves_data) 
+tab_model(word_masked_67_covartest)
+
+word_masked_317_covartest <- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c+ (1|Participant.ID), word_masked_317_diffwaves_data) 
+tab_model(word_masked_317_covartest)
+
+word_vis_67_covartest<- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c + (1|Participant.ID) + (1|Channel), word_vis_67_diffwaves_data) 
+tab_model(word_vis_67_covartest)
+
+word_vis_317_covartest <- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c + (1|Participant.ID), word_vis_317_diffwaves_data) 
+tab_model(word_vis_317_covartest)
+
+# Compute a correlation matrix of the data rounding to 2 decimal places
+word_masked_67_covar_corr_data <- subset(word_masked_67_clusterdiffwaves_data, select = c('celf5.z', 'nwrppc.arc.z', 'nwrpcc.arc.z', 'tills.z', 'toni.z', 'wrmt.z', 'flanker.z', 'age.z','pvt.z','Mean.Amp'))
+word_masked_67_covar_cor <- round(cor(word_masked_67_covar_corr_data), 2)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(word_masked_67_covar_corr_data)
+
+ggcorrplot(
+  word_masked_67_covar_cor,
+  method = "circle",
+  p.mat = p.mat,
+  hc.order = TRUE,
+  type = "lower",
+  insig = "blank"
+)
+
+# Compute a correlation matrix of the data rounding to 2 decimal places
+word_masked_317_covar_corr_data <- subset(word_masked_317_clusterdiffwaves_data, select = c('celf5.z', 'nwrppc.arc.z', 'nwrpcc.arc.z', 'tills.z', 'toni.z', 'wrmt.z', 'flanker.z', 'age.z','pvt.z','Mean.Amp'))
+word_masked_317_covar_corr <- round(cor(word_masked_317_covar_corr_data), 2)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(word_masked_317_covar_corr_data)
+
+ggcorrplot(
+  word_masked_317_covar_corr,
+  method = "circle",
+  p.mat = p.mat,
+  hc.order = TRUE,
+  type = "lower",
+  insig = "blank"
+)
+
+```
+
+### Picture Data
+Significant results (when using non-clustered electrodes as DV, i.e., lmer):
+ - Gender and participants' prime visibility threshold predicts priming effects for targets following visible primes and a 317-ms ISI (ps = .038 and .046, respectively)
+Significant results (when using cluster electrode as DV, i.e., lm):
+  - participants' prime visibility threshold predicts priming effects for targets following visible primes and a 317-ms ISI (p = .019)
+```{r}
+# Create some data subsets
+pic_masked_67_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Masked" & ISI == "67")
+pic_masked_317_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Masked" & ISI == "317")
+pic_vis_67_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Visible" & ISI == "67")
+pic_vis_317_diffwaves_data <- subset(diffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Visible" & ISI == "317")
+
+pic_masked_67_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Masked" & ISI == "67")
+pic_masked_317_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Masked" & ISI == "317")
+pic_vis_67_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Visible" & ISI == "67")
+pic_vis_317_clusterdiffwaves_data <- subset(clusterdiffwaves_data,Experimental.Condition == "picture" & Prime.Visibility == "Visible" & ISI == "317")
+
+
+# Run some regressions
+pic_masked_67_covartest <- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c + (1|Participant.ID) + (1|Channel), pic_masked_67_diffwaves_data) 
+tab_model(pic_masked_67_covartest)
+
+pic_masked_317_covartest <- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c+ (1|Participant.ID) + (1|Channel), pic_masked_317_diffwaves_data) 
+tab_model(pic_masked_317_covartest)
+
+pic_vis_67_covartest<- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c + (1|Participant.ID) + (1|Channel), pic_vis_67_diffwaves_data) 
+tab_model(pic_vis_67_covartest)
+
+pic_vis_317_covartest <- lmer(Mean.Amp ~ 1 + celf5.z.c + age.z.c + nwrppc.arc.z.c + tills.z.c + toni.z.c + wrmt.z.c + flanker.z.c + gender.c + hand.c + langstat.c + pvt.z.c + (1|Participant.ID), pic_vis_317_diffwaves_data) 
+tab_model(pic_vis_317_covartest)
+
+
+# Compute a correlation matrix of the data rounding to 2 decimal places
+pic_masked_67_covar_corr_data <- subset(pic_masked_67_clusterdiffwaves_data, select = c('celf5.z', 'nwrppc.arc.z', 'nwrpcc.arc.z', 'tills.z', 'toni.z', 'wrmt.z', 'flanker.z', 'age.z','pvt.z','Mean.Amp'))
+pic_masked_67_covar_cor <- round(cor(pic_masked_67_covar_corr_data), 2)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(pic_masked_67_covar_corr_data)
+
+ggcorrplot(
+  pic_masked_67_covar_cor,
+  method = "circle",
+  p.mat = p.mat,
+  hc.order = TRUE,
+  type = "lower",
+  insig = "blank"
+)
+
+# Compute a correlation matrix of the data rounding to 2 decimal places
+pic_masked_317_covar_corr_data <- subset(pic_masked_317_clusterdiffwaves_data, select = c('celf5.z', 'nwrppc.arc.z', 'nwrpcc.arc.z', 'tills.z', 'toni.z', 'wrmt.z', 'flanker.z', 'age.z','pvt.z','Mean.Amp'))
+pic_masked_317_covar_corr <- round(cor(pic_masked_317_covar_corr_data), 2)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(pic_masked_317_covar_corr_data)
+
+ggcorrplot(
+  pic_masked_317_covar_corr,
+  method = "circle",
+  p.mat = p.mat,
+  hc.order = TRUE,
+  type = "lower",
+  insig = "blank"
+)
+
+```
+
+

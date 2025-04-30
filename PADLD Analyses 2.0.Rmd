@@ -1,0 +1,791 @@
+---
+title: "PADLD Analyses 2.0"
+author: "Ashlie"
+date: "2024-08-03"
+output: html_document
+---
+
+```{r setup}
+
+# Libraries
+pacman::p_load(knitr, # rendering of .Rmd file
+               lme4, # model specification/estimation
+               afex, # anova and deriving p-values via LRTs from lmer
+               broom.mixed, # extracting data from model fits
+               faux, # generate correlated values
+               tidyverse, # data wrangling and visualization 
+               ggridges, # visualization
+               viridis, # color schemes for visualization
+               kableExtra, # helps with knitting the .Rmd file
+               cowplot, # visualization tool to include multiple plots
+               ggrain, # visualization tool for raincloud plots
+               dplyr, # data manipulation tools
+               here, # controlling directories/reproducibility
+               tidyr, # formatting package
+               readr, # data importation
+               Hmisc, # visualization
+               emmeans, # estimation of marginal means and contrasts
+               sjstats, # estimation of marginal means and contrasts
+               lmerTest, # deriving p-values from lmer
+               MuMIn, # ?
+               sjPlot, # APA formatting of numerical output
+               car, # data wrangling and visualization,
+               magrittr, # to use %>%
+               ggpubr, # ? (Rose had it in her script)
+               broom, # ? (Rose had it in her script)
+               Matrix, # model specification/estimation,
+               multcomp, # multiple comparison adjustments
+               forcats, # organizing visualizations
+               gtools, # data manipulation/wrangling
+               fuzzySim, # FDR correction,
+               ez, # anova
+               apaTables, # visualization of anova output
+               #renv # package versioning/reproducibility
+               )
+
+# Global theme set
+set.seed(1234) # set random seed for reproducibility
+
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE)
+
+#theme_set(theme_bw(base_size = 13) + theme(text = element_text(size=13), 
+                             #axis.title=element_text(size=12),
+                             #strip.text = element_text(margin=margin(2,0,2,0)), 
+                             #panel.grid = element_blank()))
+
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE, fig.width=10, fig.height=8, fig.fullwidth=TRUE)
+
+plot_theme <- 
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 18), 
+        axis.text.x = element_text(size = 13), 
+        axis.title.x = element_text(size = 13), 
+        axis.text.y = element_text(size = 12), 
+        axis.title.y = element_text(size = 13),
+        strip.background = element_rect(color="white", fill="white", linewidth = 1.5, linetype="solid"))
+
+options(scipen=999)
+```
+# All Critical Target Data
+## Data Manipulation
+```{r}
+# Load data (2 data frames)
+crittarg_data <- read.csv(here("PADLD Data", "Analysis Data","All PADLD Critical Target Mean Amps (50ms pre post bl).csv"),stringsAsFactors=TRUE) # mean amplitudes from 12 individual electrodes at 300 to 500ms post-target onset for all critical targets (with a +/- 50 ms baseline)
+#cluster_data <- read.csv(here("PADLD Data", "Analysis Data","PADLD Cluster Electrode Data.csv"),stringsAsFactors=TRUE) # mean amplitudes from a cluster of electrodes at 300 to 500ms post-target onset for all critical targets (with a +/- 50 ms baseline)
+
+crittarg_data %<>%
+  mutate(Mean.Amp = as.numeric(Mean.Amp),
+         Channel = factor(Channel),
+         Region = factor(Region, levels=c("frontal","central","parietal","occipital")),
+         Hemisphere = factor(Hemisphere, levels=c("left","midline","right")),
+         Priming=factor(Priming, levels=c("unprimed","primed")),
+         ISI = factor(ISI,levels=c("67","317")),
+         Experimental.Condition = factor(Experimental.Condition),
+         Stimulus.Type = factor(Stimulus.Type),
+         Prime.Visibility = factor (Prime.Visibility),
+         Trial.Type = factor(Trial.Type),
+         Group = factor(Group))
+str(crittarg_data)
+
+# Create some data subsets
+piccrittarg_data <- subset(crittarg_data,Experimental.Condition == "picture")
+wordcrittarg_data <- subset(crittarg_data,Experimental.Condition == "word")
+
+# Notes:
+# Region = anteriority/posteriority; default reference level (set above) = frontal
+# Hemisphere = laterality; default reference level (set above) = left
+# Priming = primed vs. unprimed; default reference level (set above) = unprimed
+# ISI = 67 vs. 317; default reference level (set above) = 67
+# Experimental Condition = picture vs. word; default reference level = picture
+# Stimulus Type = prime vs. target; default reference level = prime (when present)
+# Prime Visibility = masked vs. visible; default reference level = masked
+# Trial Type = critical vs. probe; default reference level = critical
+# Group = DLD vs. TL; default reference level = DLD
+```
+
+## Descriptives
+```{r}
+# N400 mean amplitudes by group, priming condition, experimental condition, and prime visibility (collapsed across region and hemisphere)
+crittarg_data_grouped1 <- group_by(crittarg_data, Experimental.Condition, Group, Prime.Visibility, Priming, ISI)
+summarise(crittarg_data_grouped1, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+
+# N400 mean amplitudes by group, priming condition, experimental condition, and prime visibility
+crittarg_data_grouped2 <- group_by(crittarg_data, Experimental.Condition, Group, Prime.Visibility, Priming, ISI, Region, Hemisphere)
+summarise(crittarg_data_grouped2, # summarize operation by group
+  mean = mean(Mean.Amp),
+  std = sd(Mean.Amp)
+    )
+```
+
+## Visualizations
+```{r}
+##### SINGLE FACTOR VISUALIZATIONS #####
+
+# N400 mean amplitude by (collapsed across experimental condition, group, prime visibility, priming condition, region, and hemisphere)
+hist(crittarg_data$Mean.Amp)
+boxplot(crittarg_data$Mean.Amp)
+
+# N400 mean amplitude by experimental condition (collapsed across group, prime visibility, priming condition, region, and hemisphere)
+plot(Mean.Amp ~ Experimental.Condition, data = crittarg_data)
+
+# N400 mean amplitude by group (collapsed acrossexperimental condition, prime visibility, priming condition, region, and hemisphere)
+plot(Mean.Amp ~ Group, data = crittarg_data)
+
+
+#### GROUP x PRIMING ####
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+# N400 mean amplitude by group and priming (collapsed across ISI, hemisphere, and region) for masked picture data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data (collapsed across ISI, hemisphere, and region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition")
+
+
+#### GROUP x PRIMING x ISI ####
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for masked picture data
+maskedpic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Picture Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for masked word data
+maskedword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Word Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for visible picture data
+vispic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Picture Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+# N400 mean amplitude by group and priming condition (collapsed across hemisphere and region) for visible picture data
+visword_data <- subset(wordcrittarg_data, Prime.Visibility == "visible")
+visword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Word Data (collapsed across hemisphere and region)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ ISI)
+
+
+#### GROUP x PRIMING x REGION ####
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for masked picture data
+maskedpic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Picture Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for masked word data
+maskedword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Masked Word Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for visible picture data
+vispic_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Picture Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ ffacet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+# N400 mean amplitude by group and priming  and region (collapsed across hemisphere and ISI) for visible picture data
+visword_data %>%
+ ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+ stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+ stat_summary(geom="line",fun.data = mean_cl_boot)+
+ ggtitle("Visible Word Data (collapsed across hemisphere and ISI)")+
+ ylab("Mean Amplitude") +
+ xlab("Priming Condition") +
+ facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")))
+
+#### GROUP x PRIMING x ISI x HEMISPHERE ####
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+ facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+ facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere (collapsed across region) for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data (collapsed across region)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+ facet_wrap(~ factor(Hemisphere, c("left","midline","right")) + ISI)
+
+
+#### GROUP x PRIMING x ISI x REGION ####
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and region (collapsed across hemisphere) for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data (collapsed across hemisphere)")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~ factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+#### GROUP x PRIMING x ISI x HEMISPHERE x REGION ####
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for masked picture data
+maskedpic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for masked word data
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for visible picture data
+vispic_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Picture Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+# N400 mean amplitude by group and priming condition and hemisphere and region for visible word data
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=Group, color=Group)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") +
+  facet_wrap(~Hemisphere + factor(Region, c("frontal","central","parietal","occipital")) + ISI)
+
+
+
+maskedword_data <- subset(wordcrittarg_data, Prime.Visibility == "masked")
+maskedword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp, group=interaction(ISI, Group),  color=Group, shape=ISI)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Masked Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") #+
+  #facet_wrap(~Group)
+
+
+visword_data <- subset(wordcrittarg_data, Prime.Visibility == "visible")
+visword_data %>%
+  ggplot(aes(x=Priming, y=Mean.Amp,  group=interaction(ISI, Group), color=Group, shape=ISI)) +
+  stat_summary(geom="pointrange", fun.data = mean_cl_boot) +
+  stat_summary(geom="line",fun.data = mean_cl_boot)+
+  ggtitle("Visible Word Data")+
+  ylab("Mean Amplitude") +
+  xlab("Priming Condition") #+
+  #facet_wrap(~Group)
+
+
+```
+
+## Analyses
+### Omnibus ANOVAs (overall differences)
+#### Words
+Results:
+- significant effects (only reporting results from post-hoc emmeans tests that are significant after correcting for multiple comparisons, i.e., < .05/however many comparisons in that emmean test, but reporting unadjusted p-values):
+  - ISI (p < .001) 
+    - more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI
+  - Priming x Region (p = .014) 
+    - driven by typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) in central region (p = .002)
+  - ISI x Region (p = .010) 
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in frontal (p < .001) and central regions (p < .001)
+  - ISI x Prime Visibility x Region (p < .001)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI for targets following masked primes in frontal (p < .001), central (p < .001), and parietal regions (p < .004)
+  - ISI x Prime Visibility x Hemisphere (p = .006)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI for targets following masked primes in left, midline, and right hemispheres (all ps < .001)
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # contrast code doesn't work without this but you don't need it to just run the anova
+wordanova <-ezANOVA(data=wordcrittarg_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Prime.Visibility,Region,Hemisphere), # within-subjects variable
+        type=3,
+        return_aov=TRUE) # because i need this for  post hocs
+wordanova_table <- apa.ezANOVA.table(wordanova)
+print(wordanova)
+
+wordemm1 <- emmeans(wordanova$aov, ~ ISI)
+wordemm1
+
+wordemm2 <- emmeans(wordanova$aov, ~ Priming | Region)
+wordemm2
+tidy(pairs(wordemm2, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+wordemm3 <- emmeans(wordanova$aov, ~ ISI | Region)
+wordemm3
+tidy(pairs(wordemm3, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+wordemm4 <- emmeans(wordanova$aov, ~ ISI| Prime.Visibility*Region)
+wordemm4
+tidy(pairs(wordemm4, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+wordemm5 <- emmeans(wordanova$aov, ~ ISI | Prime.Visibility*Hemisphere)
+wordemm5
+tidy(pairs(wordemm5, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+```
+
+##### DLD
+Results:
+- significant effects (only reporting results from post-hoc emmeans tests that are significant after correcting for multiple comparisons, i.e., < .05/however many comparisons in that emmean test, but reporting unadjusted p-values):
+  - ISI (p = .041)
+    - more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI
+  - Region (p = .009) - not interested
+  - Prime Visibility x Region (p = .043)
+    - driven by more negative N400 mean amplitudes for targets following masked primes than targets following visible primes in frontal region (p = .001)
+- although no interaction with priming is significant, a priori hypotheses about priming and ISI (and prime visiblity), so exploring simple effects anyway
+  - no significant differences between priming conditions (even when include prime visibility, region, and/or hemisphere) when corrected for multiple comparisons (although typical priming effect for the 67-ms ISI for targets following visible primes in the right occipital region based on unadjusted p-value (p = .044))
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # contrast code doesn't work without this but you don't need it to just run the anova
+dldwordanova <-ezANOVA(data=subset(wordcrittarg_data,Group=="DLD"),
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Prime.Visibility,Region,Hemisphere), # within-subjects variable
+        type=3,
+        return_aov=TRUE) # because i need this for  post hocs
+dldwordanova_table <- apa.ezANOVA.table(dldwordanova)
+print(dldwordanova)
+
+dldwordemm1 <- emmeans(dldwordanova$aov, ~ ISI)
+dldwordemm1
+
+dldwordemm2 <- emmeans(dldwordanova$aov, ~ Prime.Visibility | Region)
+dldwordemm2
+tidy(pairs(dldwordemm2, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+dldwordemm3 <- emmeans(dldwordanova$aov, ~ Priming | ISI*Prime.Visibility*Region*Hemisphere)
+dldwordemm3
+tidy(pairs(dldwordemm3, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+```
+
+##### TL
+Results:
+- significant effects (only reporting results from post-hoc emmeans tests that are significant after correcting for multiple comparisons, i.e., < .05/however many comparisons in that emmean test, but reporting unadjusted p-values):
+  - ISI (p = .001)
+    - more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI
+  - Region (p < .001) - not interested
+  - ISI x Region (p = .005)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in frontal and central regions (both ps < .001)
+  - Priming x Hemisphere (p = .020)
+    - driven by typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) in right hemisphere (p = .016)
+  - ISI x Prime Visibility x Region (p < .001)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI for targets following masked primes in frontal and central regions (both ps < .001)
+  - ISI x Prime Visibility x Hemisphere (p = .017)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in left, midline, and right hemispheres (all ps < .001)
+- although no interaction with priming besides priming x hemisphere is significant, a priori hypotheses about priming and ISI (and prime visibility), so exploring simple effects anyway
+  - no significant differences between priming conditions (even when include prime visibility, region, and/or hemisphere) when corrected for multiple comparisons (although handful of significant differences between priming conditions at different ISIs/visiblities/regions/hemispheres based on unadjusted p-values)
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # contrast code doesn't work without this but you don't need it to just run the anova
+tlwordanova <-ezANOVA(data=subset(wordcrittarg_data,Group=="TL"),
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Prime.Visibility,Region,Hemisphere), # within-subjects variable
+        type=3,
+        return_aov=TRUE) # because i need this for  post hocs
+tlwordanova_table <- apa.ezANOVA.table(tlwordanova)
+print(tlwordanova)
+
+tlwordemm1 <- emmeans(tlwordanova$aov, ~ ISI)
+tlwordemm1
+
+tlwordemm2 <- emmeans(tlwordanova$aov, ~ ISI | Region)
+tlwordemm2
+tidy(pairs(tlwordemm2, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlwordemm3 <- emmeans(tlwordanova$aov, ~ Priming | Hemisphere)
+tlwordemm3
+tidy(pairs(tlwordemm3, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlwordemm4 <- emmeans(tlwordanova$aov, ~ ISI| Prime.Visibility*Region)
+tlwordemm4
+tidy(pairs(tlwordemm4, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlwordemm5 <- emmeans(tlwordanova$aov, ~ ISI | Prime.Visibility*Hemisphere)
+tlwordemm5
+tidy(pairs(tlwordemm5, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlwordemm6 <- emmeans(tlwordanova$aov, ~ Priming | ISI*Prime.Visibility*Region)
+tlwordemm6
+tidy(pairs(tlwordemm6, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+```
+
+
+#### Pictures
+Results:
+- significant effects (only reporting results from post-hoc emmeans tests that are significant after correcting for multiple comparisons, i.e., < .05/however many comparisons in that emmean test, but reporting unadjusted p-values):
+  - Priming (p = .036)
+    - typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed)
+  - ISI (p = .021)
+    - more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI
+  - Region (p < .001) - uninterested in this
+  - Hemisphere (p = .006) - uninterested in this
+  - Priming x Region (p < .001)
+    - driven by typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) in frontal and central regions (both ps < .001) but reversed effect in occipital region (p = .002)
+  - ISI x Region (p < .001)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in occipital region (p < .001)
+  - Prime Visibility x Region (p = .001)
+   - driven by more N400 mean amplitudes for targets following visible primes than masked primes in central region (p = .012) but reversed in occipital region (p = .002)
+  - Priming x Hemisphere (p = .015)
+    - driven by typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) in midline (p = .013) and right hemisphere (p = .008)
+  - ISI x Hemisphere (p = .002)
+   - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in right hemisphere (p < .001)
+  - Region x Hemisphere (p < .001) - uninterested in this
+  - Priming x Prime Visibility x Region (p = .035)
+    - driven by typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) for targets following masked primes in frontal region (p = .003) and for targets following visible primes in frontal and central  regions (all ps < .001) but reversed effect for targets following visible primes in occipital region (p < .001)
+  - ISI x Prime Visibility x Region (p < .001)
+    - driven by more negative N400 me an amplitudes for 67-ms ISI than 317-ms ISI for targets following masked primes in frontal (p < .001), central (p < .001), and occipital  ( p = .004) regions and for targets following visible primes in occipital region (p < .001) but reversed effect for targets following visible primes in frontal and central regions (both ps < .001)
+  - ISI x Prime Visibility x Region x Hemisphere (p = .011)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI for targets following masked primes in left frontal and central, midline frontal and central, and right frontal, central, and occipital regions (all ps < .001, except right occipital: p = .002) and for targets following visible primes in left occipital, midline occipital, and right occipital regions (all ps < .001) but reversed for for targets following visible primes in left frontal and central, midline frontal and central, and right frontal and central regions (all ps < .001)
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # contrast code doesn't work without this but you don't need it to just run the anova
+picanova <-ezANOVA(data=piccrittarg_data,
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Prime.Visibility,Region,Hemisphere), # within-subjects variable
+        type=3,
+        return_aov=TRUE) # because i need this for  post hocs
+picanova_table <- apa.ezANOVA.table(picanova)
+print(picanova)
+
+picemm1 <- emmeans(picanova$aov, ~ Priming)
+picemm1
+
+picemm2 <- emmeans(picanova$aov, ~ ISI)
+picemm2
+
+picemm3 <- emmeans(picanova$aov, ~ Priming | Region)
+picemm3
+tidy(pairs(picemm3, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+picemm4 <- emmeans(picanova$aov, ~ ISI | Region)
+picemm4
+tidy(pairs(picemm4, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+picemm5 <- emmeans(picanova$aov, ~ Prime.Visibility | Region)
+picemm5
+tidy(pairs(picemm5, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+picemm6 <- emmeans(picanova$aov, ~ Priming | Hemisphere)
+picemm6
+tidy(pairs(picemm6, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+picemm7 <- emmeans(picanova$aov, ~ ISI | Hemisphere)
+picemm7
+tidy(pairs(picemm7, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+picemm8 <- emmeans(picanova$aov, ~ Priming | Prime.Visibility*Region)
+picemm8
+tidy(pairs(picemm8, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+picemm9 <- emmeans(picanova$aov, ~ ISI | Prime.Visibility*Region)
+picemm9
+tidy(pairs(picemm9, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+picemm10 <- emmeans(picanova$aov, ~ ISI | Prime.Visibility*Region*Hemisphere)
+picemm10
+pairs(picemm10, adjust="none")
+tidy(pairs(picemm10, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+```
+
+##### DLD
+Results:
+- significant effects (only reporting results from post-hoc emmeans tests that are significant after correcting for multiple comparisons, i.e., < .05/however many comparisons in that emmean test, but reporting unadjusted p-values):
+  - Region (p = .012) - not interested
+  - Priming x Region (p = .031)
+    - no significant differences between priming conditions when corrected for multiple comparisons (although typical priming effect in the central region (p = .013) and reversed effect in occipital region (p = .039) based on unadjusted p-values)
+  - ISI x Region (p = .013)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in occipital region (p < .001)
+  - Region x Hemisphere (.012) - not interested
+- although no interaction with priming is significant, a priori hypotheses about priming and ISI (and prime visiblity), so exploring simple effects anyway
+  - typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) for 317 ISI for targets following visible primes in central midline region (p < .001), otherwise no significant differences between priming conditions (even when include prime visibility, region, and/or hemisphere) when corrected for multiple comparisons (although handful of significant differences between priming conditions at different ISIs/visiblities/regions/hemispheres based on unadjusted p-values)
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # contrast code doesn't work without this but you don't need it to just run the anova
+dldpicanova <-ezANOVA(data=subset(piccrittarg_data,Group=="DLD"),
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Prime.Visibility,Region,Hemisphere), # within-subjects variable
+        type=3,
+        return_aov=TRUE) # because i need this for  post hocs
+dldpicanova_table <- apa.ezANOVA.table(dldpicanova)
+print(dldpicanova)
+
+dldpicemm1 <- emmeans(dldpicanova$aov, ~ Priming | Region)
+dldpicemm1
+tidy(pairs(dldpicemm1, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+dldpicemm2 <- emmeans(dldpicanova$aov, ~ ISI | Region)
+dldpicemm2
+tidy(pairs(dldpicemm2, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+dldpicemm3 <- emmeans(dldpicanova$aov, ~ Priming | ISI*Prime.Visibility*Region*Hemisphere)
+dldpicemm3
+tidy(pairs(dldpicemm3, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+```
+
+##### TL
+Results:
+- significant effects (only reporting results from post-hoc emmeans tests that are significant after correcting for multiple comparisons, i.e., < .05/however many comparisons in that emmean test, but reporting unadjusted p-values):
+  - Region (p < .001) - not interested
+  - Hemisphere (p = 019) - not interested
+  - Priming x Region (p < .001)
+    - driven by typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) in frontal and central regions (both ps < .001)
+  - ISI x Region (p = .002)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in occipital region (p < .001)
+  - Prime Visibility x Region (p = .011)
+    - no significant differences between prime visiblity conditions when corrected for multiple comparisons
+  - Priming x Hemisphere (p = .020)
+    - driven by typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) in right hemisphere (p = .014)
+  - ISI x Hemisphere (p = .014)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI in right hemisphere (p = .006)
+  - Region x Hemisphere (p < .001) - not interested
+  - ISI x Prime Visibility x Region (p < .001)
+    - driven by more negative N400 mean amplitudes for 67-ms ISI than 317-ms ISI for targets following masked primes in frontal and central regions (both ps < .001) and for targets following visible primes in frontal and central regions but a reversed effect in occipital region (all ps < .001)
+  - ISI x Prime Visibility x Region x Hemisphere (p = .011)
+    - driven by a whole bunch of significant differences between ISIs at all sorts of region and hemisphere combos (all ps < .001), but this isn't really relevant to my research questions so I'm not going to bother writing out all the significant differences
+- although no interaction with priming besides priming x hemisphere is significant, a priori hypotheses about priming and ISI (and prime visibility), so exploring simple effects anyway
+  - fair amount of significant differences between priming conditions (even when include prime visibility, region, and/or hemisphere and when corrected for multiple comparisons)
+   - typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) for 317 ISI overall (p = .022)
+   - typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) for 317 ISI in the midline (p = .008) and right hemisphere (p = .006)
+   -  typical priming effect (i.e., more negative N400 mean amplitudes for unprimed than primed) for 317 ISI for targets following visible primes in the frontal (p < .001) and central regions (p = .002)
+   - more too, but too tired to write them all out right now and not sure whether this analysis even matters
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # contrast code doesn't work without this but you don't need it to just run the anova
+tlpicanova <-ezANOVA(data=subset(piccrittarg_data,Group=="TL"),
+        dv=Mean.Amp, # column name for dependent measure
+        wid=.(Participant.ID), # name of random factor, either subject or item
+        within=.(Priming,ISI,Prime.Visibility,Region,Hemisphere), # within-subjects variable
+        type=3,
+        return_aov=TRUE) # because i need this for  post hocs
+tlpicanova_table <- apa.ezANOVA.table(tlpicanova)
+print(tlpicanova)
+
+tlpicemm1 <- emmeans(tlpicanova$aov, ~ Priming | Region)
+tlpicemm1
+tidy(pairs(tlpicemm1, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlpicemm2 <- emmeans(tlpicanova$aov, ~ ISI | Region)
+tlpicemm2
+tidy(pairs(tlpicemm2, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlpicemm3 <- emmeans(tlpicanova$aov, ~ Prime.Visibility | Region)
+tlpicemm3
+tidy(pairs(tlpicemm3, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlpicemm4 <- emmeans(tlpicanova$aov, ~ Priming | Hemisphere)
+tlpicemm4
+tidy(pairs(tlpicemm4, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlpicemm5 <- emmeans(tlpicanova$aov, ~ ISI | Hemisphere)
+tlpicemm5
+tidy(pairs(tlpicemm5, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlpicemm6 <- emmeans(tlpicanova$aov, ~ ISI | Prime.Visibility*Region)
+tlpicemm6
+tidy(pairs(tlpicemm6, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlpicemm7 <- emmeans(tlpicanova$aov, ~ ISI | Prime.Visibility*Region*Hemisphere)
+tlpicemm7
+tidy(pairs(tlpicemm7, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+tlpicemm8 <- emmeans(tlpicanova$aov, ~ Priming | ISI*Prime.Visibility*Region*Hemisphere)
+tlpicemm8
+tidy(pairs(tlpicemm8, adjust="none"))%>%
+   mutate(signif = stars.pval(p.value))
+
+```
+
+
+
+### Post-ominbus ANOVA DLD vs. TL comparison analyses (lmers with cluser electrodes)
+#### DLD
+##### Masked Words
+```{r}
+```
+##### Masked Pictures
+```{r}
+```
+##### Visible Words
+```{r}
+```
+##### Visible Pictures
+```{r}
+```
+
+#### TL
+##### Masked Words
+```{r}
+```
+##### Masked Pictures
+```{r}
+```
+##### Visible Words
+```{r}
+```
+##### Visible Pictures
+```{r}
+```
